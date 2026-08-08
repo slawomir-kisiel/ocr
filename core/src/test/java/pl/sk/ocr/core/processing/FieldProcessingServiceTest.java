@@ -91,7 +91,7 @@ class FieldProcessingServiceTest {
 
         assertThat(result.status()).isEqualTo(ProcessingStatus.FAILED);
         assertThat(result.issues()).singleElement()
-            .satisfies(issue -> assertThat(issue.code().value()).isEqualTo("FIELD_REGION_INVALID"));
+            .satisfies(issue -> assertThat(issue.code().value()).isEqualTo("FIELD_REGION_OUT_OF_BOUNDS"));
     }
 
     private static FieldDefinition field(List<ExtensionRef> processors, List<ExtensionRef> transformers, List<ExtensionRef> validators) {

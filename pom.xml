@@ -38,6 +38,7 @@
     <pdfbox.version>3.0.8</pdfbox.version>
     <tess4j.version>5.20.0</tess4j.version>
     <zxing.version>3.5.4</zxing.version>
+    <commons-csv.version>1.14.1</commons-csv.version>
     <archunit.version>1.3.0</archunit.version>
     <jacoco.version>0.8.12</jacoco.version>
     <surefire.version>3.5.0</surefire.version>
@@ -105,6 +106,11 @@
         <groupId>com.google.zxing</groupId>
         <artifactId>javase</artifactId>
         <version>${zxing.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-csv</artifactId>
+        <version>${commons-csv.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

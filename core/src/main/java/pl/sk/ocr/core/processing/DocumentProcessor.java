@@ -76,7 +76,7 @@ public final class DocumentProcessor {
             var geometry = geometryNormalizationService.normalize(category, referenceFeatures);
             if (geometry.status() == GeometryStatus.FAILED) {
                 return DocumentResult.from(documentId, category.id(), List.of(), List.of(ProcessingIssue.error(
-                    new IssueCode("GEOMETRY_NORMALIZATION_FAILED"),
+                    new IssueCode("GEOMETRY_RESOLUTION_FAILED"),
                     ErrorScope.GEOMETRY,
                     ProcessingStage.GEOMETRY_RESOLUTION,
                     "Required anchors were not detected"

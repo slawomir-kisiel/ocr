@@ -43,7 +43,7 @@ public final class FieldProcessingService {
         try {
             currentImage = crop(pageImage, field, transform);
         } catch (RuntimeException e) {
-            return failed(field, issues, "FIELD_REGION_INVALID", ProcessingStage.FIELD_REGION_RESOLUTION, e);
+            return failed(field, issues, "FIELD_REGION_OUT_OF_BOUNDS", ProcessingStage.FIELD_REGION_RESOLUTION, e);
         }
 
         for (ExtensionRef processorRef : field.imageProcessors()) {
@@ -53,7 +53,7 @@ public final class FieldProcessingService {
                     () -> TraceSink.NOOP
                 );
             } catch (RuntimeException e) {
-                return failed(field, issues, "IMAGE_PROCESSING_FAILED", ProcessingStage.IMAGE_PROCESSING, e);
+                return failed(field, issues, "FIELD_IMAGE_PROCESSING_FAILED", ProcessingStage.IMAGE_PROCESSING, e);
             }
         }
 
@@ -68,7 +68,7 @@ public final class FieldProcessingService {
             try {
                 value = transform(value, transformerRef);
             } catch (RuntimeException e) {
-                return failed(field, issues, "VALUE_TRANSFORMATION_FAILED", ProcessingStage.VALUE_TRANSFORMATION, e);
+                return failed(field, issues, "FIELD_VALUE_TRANSFORMATION_FAILED", ProcessingStage.VALUE_TRANSFORMATION, e);
             }
         }
 
