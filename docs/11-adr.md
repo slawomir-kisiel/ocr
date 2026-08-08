@@ -68,7 +68,7 @@ Zmiana decyzji architektonicznej powinna skutkować:
 | ADR-017 | Trace pipeline'u OFF/BASIC/FULL | Accepted |
 | ADR-018 | Diagnostyczny zapis trace poza Domain | Accepted |
 | ADR-019 | Standardowe rozszerzenia korzystają z Extension API | Accepted |
-| ADR-020 | `BufferedImage` jako graniczny model obrazu pluginów | Proposed |
+| ADR-020 | `BufferedImage` jako graniczny model obrazu pluginów | Accepted |
 | ADR-021 | Konfiguracja ładowana jako immutable snapshot | Accepted |
 | ADR-022 | Fail-fast dla błędów konfiguracji i środowiska | Accepted |
 | ADR-023 | Błędy dokumentu nie zatrzymują batcha | Accepted |
@@ -773,7 +773,7 @@ Extension API jest testowane przez rzeczywiste funkcje systemu.
 
 | Pole | Wartość |
 | ---- | ------- |
-| Status | Proposed |
+| Status | Accepted |
 | Decyzja | `BufferedImage` poprzez `ProcessingImage` |
 | Data | 2026-08-08 |
 
