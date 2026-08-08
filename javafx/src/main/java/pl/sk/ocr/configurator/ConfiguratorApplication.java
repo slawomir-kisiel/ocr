@@ -1,6 +1,7 @@
 package pl.sk.ocr.configurator;
 
 import java.nio.file.Path;
+import java.util.List;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
@@ -41,7 +42,7 @@ public final class ConfiguratorApplication extends Application {
 
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
-    private final TreeView<String> configurationTree = new TreeView<>();
+    private final TreeView<ConfigurationTreeNode> configurationTree = new TreeView<>();
     private final ImageView pageImage = new ImageView();
     private final PaneOverlay viewer = new PaneOverlay(pageImage);
     private final ScrollPane documentScroll = new ScrollPane(viewer);
@@ -143,7 +144,10 @@ public final class ConfiguratorApplication extends Application {
 
     private SplitPane center() {
         configurationTree.setPrefWidth(280);
-        configurationTree.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> refreshDetails());
+        configurationTree.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            switchToNodePage(selected == null ? null : selected.getValue());
+            refreshDetails();
+        });
         validationList.setPrefHeight(180);
         configureCategoryDetailsForm();
         configureOtherDetailsForms();
@@ -343,15 +347,108 @@ public final class ConfiguratorApplication extends Application {
 
     private void refreshTree() {
         var draft = viewModel.draft();
-        var root = new TreeItem<>(draft == null ? "No category" : "Category: " + draft.id());
+        var selectedId = selectedTreeNodeId();
+        var root = new TreeItem<>(draft == null
+            ? ConfigurationTreeNode.root("No category")
+            : ConfigurationTreeNode.root("Category: " + draft.id()));
         root.setExpanded(true);
         if (draft != null) {
-            root.getChildren().add(new TreeItem<>("Identification"));
-            root.getChildren().add(new TreeItem<>("Anchors (" + (draft.anchors() == null ? 0 : draft.anchors().size()) + ")"));
-            root.getChildren().add(new TreeItem<>("Geometry"));
-            root.getChildren().add(new TreeItem<>("Fields (" + (draft.fields() == null ? 0 : draft.fields().size()) + ")"));
+            root.getChildren().add(identificationTree(draft.identification()));
+            root.getChildren().add(anchorsTree(draft.anchors()));
+            root.getChildren().add(geometryTree(draft.geometry()));
+            root.getChildren().add(fieldsTree(draft.fields()));
         }
         configurationTree.setRoot(root);
+        selectTreeNode(root, selectedId);
+    }
+
+    private TreeItem<ConfigurationTreeNode> identificationTree(pl.sk.ocr.config.dto.IdentificationDto identification) {
+        var groups = identification == null || identification.groups() == null ? List.<pl.sk.ocr.config.dto.ConditionGroupDto>of() : identification.groups();
+        var root = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.IDENTIFICATION, "Identification (" + groups.size() + ")", "identification", -1, -1, null));
+        root.setExpanded(true);
+        for (int groupIndex = 0; groupIndex < groups.size(); groupIndex++) {
+            var group = groups.get(groupIndex);
+            var conditions = group.conditions() == null ? List.<pl.sk.ocr.config.dto.ConditionDto>of() : group.conditions();
+            var groupItem = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.IDENTIFICATION_GROUP, "Group " + (groupIndex + 1) + " (" + conditions.size() + ")", "identification.group." + groupIndex, groupIndex, -1, null));
+            for (int conditionIndex = 0; conditionIndex < conditions.size(); conditionIndex++) {
+                var condition = conditions.get(conditionIndex);
+                groupItem.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.CONDITION,
+                    "Condition " + (conditionIndex + 1) + ": " + labelOrDefault(condition.type(), "condition"),
+                    "identification.group." + groupIndex + ".condition." + conditionIndex,
+                    groupIndex,
+                    conditionIndex,
+                    condition.page())));
+            }
+            root.getChildren().add(groupItem);
+        }
+        return root;
+    }
+
+    private TreeItem<ConfigurationTreeNode> anchorsTree(List<pl.sk.ocr.config.dto.AnchorDto> anchors) {
+        var anchorList = anchors == null ? List.<pl.sk.ocr.config.dto.AnchorDto>of() : anchors;
+        var root = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.ANCHORS, "Anchors (" + anchorList.size() + ")", "anchors", -1, -1, null));
+        root.setExpanded(true);
+        for (int i = 0; i < anchorList.size(); i++) {
+            var anchor = anchorList.get(i);
+            root.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.ANCHOR,
+                labelOrDefault(anchor.id(), "Anchor " + (i + 1)),
+                "anchor." + i,
+                i,
+                -1,
+                anchor.page())));
+        }
+        return root;
+    }
+
+    private TreeItem<ConfigurationTreeNode> geometryTree(pl.sk.ocr.config.dto.GeometryDto geometry) {
+        var root = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.GEOMETRY, "Geometry", "geometry", -1, -1, null));
+        if (geometry != null && geometry.strategy() != null) {
+            root.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.GEOMETRY_STRATEGY,
+                "Strategy: " + labelOrDefault(geometry.strategy().type(), "NONE"),
+                "geometry.strategy",
+                -1,
+                -1,
+                null)));
+        }
+        return root;
+    }
+
+    private TreeItem<ConfigurationTreeNode> fieldsTree(List<pl.sk.ocr.config.dto.FieldDto> fields) {
+        var fieldList = fields == null ? List.<pl.sk.ocr.config.dto.FieldDto>of() : fields;
+        var root = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.FIELDS, "Fields (" + fieldList.size() + ")", "fields", -1, -1, null));
+        root.setExpanded(true);
+        for (int i = 0; i < fieldList.size(); i++) {
+            var field = fieldList.get(i);
+            var fieldItem = new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.FIELD,
+                labelOrDefault(field.id(), "Field " + (i + 1)),
+                "field." + i,
+                i,
+                -1,
+                field.page()));
+            fieldItem.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.FIELD_OCR, "OCR", "field." + i + ".ocr", i, -1, field.page())));
+            fieldItem.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.FIELD_OUTPUT, "Output", "field." + i + ".output", i, -1, field.page())));
+            fieldItem.getChildren().add(pipelineTree(TreeNodeType.FIELD_IMAGE_PROCESSORS, "Image Processors", "field." + i + ".imageProcessors", i, field.page(), field.imageProcessors()));
+            fieldItem.getChildren().add(pipelineTree(TreeNodeType.FIELD_TRANSFORMERS, "Transformers", "field." + i + ".transformers", i, field.page(), field.transformers()));
+            fieldItem.getChildren().add(pipelineTree(TreeNodeType.FIELD_VALIDATORS, "Validators", "field." + i + ".validators", i, field.page(), field.validators()));
+            root.getChildren().add(fieldItem);
+        }
+        return root;
+    }
+
+    private TreeItem<ConfigurationTreeNode> pipelineTree(TreeNodeType type, String label, String id, int fieldIndex, Integer page,
+                                                         List<pl.sk.ocr.config.dto.ExtensionRefDto> steps) {
+        var stepList = steps == null ? List.<pl.sk.ocr.config.dto.ExtensionRefDto>of() : steps;
+        var root = new TreeItem<>(new ConfigurationTreeNode(type, label + " (" + stepList.size() + ")", id, fieldIndex, -1, page));
+        for (int i = 0; i < stepList.size(); i++) {
+            var step = stepList.get(i);
+            root.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.PIPELINE_STEP,
+                labelOrDefault(step.id(), "Step " + (i + 1)),
+                id + "." + i,
+                fieldIndex,
+                i,
+                page)));
+        }
+        return root;
     }
 
     private void refreshDetails() {
@@ -475,20 +572,13 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private VBox detailsFormForSelection() {
-        var selected = selectedDetailsNode();
-        if (selected.startsWith("Identification")) {
-            return identificationDetailsForm();
-        }
-        if (selected.startsWith("Anchors")) {
-            return anchorsDetailsForm();
-        }
-        if (selected.startsWith("Geometry")) {
-            return geometryDetailsForm();
-        }
-        if (selected.startsWith("Fields")) {
-            return fieldsDetailsForm();
-        }
-        return categoryDetailsForm();
+        return switch (selectedNodeType()) {
+            case IDENTIFICATION, IDENTIFICATION_GROUP, CONDITION -> identificationDetailsForm();
+            case ANCHORS, ANCHOR -> anchorsDetailsForm();
+            case GEOMETRY, GEOMETRY_STRATEGY -> geometryDetailsForm();
+            case FIELDS, FIELD, FIELD_OCR, FIELD_OUTPUT, FIELD_IMAGE_PROCESSORS, FIELD_TRANSFORMERS, FIELD_VALIDATORS, PIPELINE_STEP -> fieldsDetailsForm();
+            case ROOT -> categoryDetailsForm();
+        };
     }
 
     private VBox categoryDetailsForm() {
@@ -732,9 +822,48 @@ public final class ConfiguratorApplication extends Application {
         return selected == null ? PAGE_TYPE_SINGLE : selected.getUserData().toString();
     }
 
-    private String selectedDetailsNode() {
+    private TreeNodeType selectedNodeType() {
         var selected = configurationTree.getSelectionModel().getSelectedItem();
-        return selected == null || selected.getValue() == null ? "" : selected.getValue();
+        return selected == null || selected.getValue() == null ? TreeNodeType.ROOT : selected.getValue().type();
+    }
+
+    private String selectedTreeNodeId() {
+        var selected = configurationTree.getSelectionModel().getSelectedItem();
+        return selected == null || selected.getValue() == null ? null : selected.getValue().id();
+    }
+
+    private boolean selectTreeNode(TreeItem<ConfigurationTreeNode> item, String id) {
+        if (id != null && id.equals(item.getValue().id())) {
+            configurationTree.getSelectionModel().select(item);
+            return true;
+        }
+        for (var child : item.getChildren()) {
+            if (selectTreeNode(child, id)) {
+                return true;
+            }
+        }
+        if (id == null) {
+            configurationTree.getSelectionModel().select(item);
+            return true;
+        }
+        return false;
+    }
+
+    private void switchToNodePage(ConfigurationTreeNode node) {
+        if (node == null || node.page() == null || viewModel.session().pageCache().isEmpty()) {
+            return;
+        }
+        var page = Math.max(1, Math.min(viewModel.session().pageCache().size(), node.page()));
+        if (page != viewModel.session().currentPage()) {
+            viewModel.session().currentPage(page);
+            renderPage();
+            pageLabel.setText("Page " + viewModel.session().currentPage() + "/" + viewModel.session().pageCache().size()
+                + " | Zoom " + Math.round(zoom * 100) + "%");
+        }
+    }
+
+    private String labelOrDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private void selectPageType(String type) {
@@ -802,5 +931,35 @@ public final class ConfiguratorApplication extends Application {
         void clearOverlay() {
             getChildren().removeIf(node -> node != imageView);
         }
+    }
+
+    private record ConfigurationTreeNode(TreeNodeType type, String label, String id, int index, int childIndex, Integer page) {
+        static ConfigurationTreeNode root(String label) {
+            return new ConfigurationTreeNode(TreeNodeType.ROOT, label, "root", -1, -1, null);
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    private enum TreeNodeType {
+        ROOT,
+        IDENTIFICATION,
+        IDENTIFICATION_GROUP,
+        CONDITION,
+        ANCHORS,
+        ANCHOR,
+        GEOMETRY,
+        GEOMETRY_STRATEGY,
+        FIELDS,
+        FIELD,
+        FIELD_OCR,
+        FIELD_OUTPUT,
+        FIELD_IMAGE_PROCESSORS,
+        FIELD_TRANSFORMERS,
+        FIELD_VALIDATORS,
+        PIPELINE_STEP
     }
 }
