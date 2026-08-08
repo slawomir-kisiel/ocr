@@ -52,6 +52,7 @@ class OcrCliApplicationTest {
 
         assertThat(code).isEqualTo(1);
         assertThat(harness.errText()).contains("--profile");
+        assertThat(harness.errText()).doesNotContain("CLI execution failed");
     }
 
     @Test

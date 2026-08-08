@@ -62,15 +62,15 @@ public final class OcrCliApplication {
             summaryRenderer.completed(out, result, Duration.between(started, Instant.now()), context.batchOptions().outputFile());
             return exitCodeResolver.resolve(CliExecutionStatus.SUCCESS);
         } catch (ParameterException | IllegalArgumentException e) {
-            return fail(CliExecutionStatus.ARGUMENT_ERROR, e);
+            return fail(CliExecutionStatus.ARGUMENT_ERROR, e, false);
         } catch (ConfigurationException e) {
-            return fail(CliExecutionStatus.CONFIGURATION_ERROR, e);
+            return fail(CliExecutionStatus.CONFIGURATION_ERROR, e, false);
         } catch (CliEnvironmentException e) {
-            return fail(CliExecutionStatus.ENVIRONMENT_ERROR, e);
+            return fail(CliExecutionStatus.ENVIRONMENT_ERROR, e, false);
         } catch (BatchProcessingException e) {
-            return fail(CliExecutionStatus.EXECUTION_ERROR, e);
+            return fail(CliExecutionStatus.EXECUTION_ERROR, e, true);
         } catch (RuntimeException e) {
-            return fail(CliExecutionStatus.EXECUTION_ERROR, e);
+            return fail(CliExecutionStatus.EXECUTION_ERROR, e, true);
         }
     }
 
@@ -83,9 +83,9 @@ public final class OcrCliApplication {
         }
     }
 
-    private int fail(CliExecutionStatus status, RuntimeException e) {
+    private int fail(CliExecutionStatus status, RuntimeException e, boolean logStackTrace) {
         err.println("ERROR: " + e.getMessage());
-        if (LoggerFactory.getLogger(OcrCliApplication.class).isDebugEnabled()) {
+        if (logStackTrace && LoggerFactory.getLogger(OcrCliApplication.class).isDebugEnabled()) {
             LoggerFactory.getLogger(OcrCliApplication.class).debug("CLI execution failed", e);
         }
         err.flush();
