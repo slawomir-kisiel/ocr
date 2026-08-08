@@ -21,8 +21,12 @@ public record BufferedProcessingImage(BufferedImage asBufferedImage) implements 
     }
 
     public BufferedProcessingImage crop(Region region) {
-        var x = clamp((int) Math.round(region.x()), 0, width());
-        var y = clamp((int) Math.round(region.y()), 0, height());
+        if (region.x() >= width() || region.y() >= height()
+            || region.x() + region.width() <= 0 || region.y() + region.height() <= 0) {
+            throw new IllegalArgumentException("region is outside image bounds");
+        }
+        var x = clamp((int) Math.round(region.x()), 0, width() - 1);
+        var y = clamp((int) Math.round(region.y()), 0, height() - 1);
         var maxWidth = width() - x;
         var maxHeight = height() - y;
         var cropWidth = clamp((int) Math.round(region.width()), 1, maxWidth);

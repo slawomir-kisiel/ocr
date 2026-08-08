@@ -1,17 +1,14 @@
 package pl.sk.ocr.core.processing;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
-import pl.sk.ocr.config.runtime.FieldDefinition;
 import pl.sk.ocr.config.runtime.RuntimeConfiguration;
 import pl.sk.ocr.core.document.DocumentReader;
 import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.core.geometry.AnchorDetectionService;
 import pl.sk.ocr.core.geometry.GeometryNormalizationService;
 import pl.sk.ocr.core.geometry.GeometryStatus;
-import pl.sk.ocr.core.image.BufferedProcessingImage;
 import pl.sk.ocr.core.identification.CategoryIdentificationService;
 import pl.sk.ocr.core.identification.IdentificationStatus;
 import pl.sk.ocr.core.ocr.OcrEngine;
@@ -25,8 +22,9 @@ import pl.sk.ocr.domain.issue.ProcessingIssue;
 import pl.sk.ocr.domain.issue.ProcessingStage;
 import pl.sk.ocr.domain.result.DocumentResult;
 import pl.sk.ocr.domain.result.FieldResult;
-import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
+import pl.sk.ocr.extension.api.DefaultExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
 
 public final class DocumentProcessor {
@@ -35,13 +33,19 @@ public final class DocumentProcessor {
     private final CategoryIdentificationService identificationService;
     private final AnchorDetectionService anchorDetectionService;
     private final GeometryNormalizationService geometryNormalizationService;
+    private final FieldProcessingService fieldProcessingService;
 
     public DocumentProcessor(DocumentReader documentReader, OcrEngine ocrEngine) {
+        this(documentReader, ocrEngine, new DefaultExtensionRegistry(List.of()));
+    }
+
+    public DocumentProcessor(DocumentReader documentReader, OcrEngine ocrEngine, ExtensionRegistry extensionRegistry) {
         this.documentReader = documentReader;
         this.ocrEngine = ocrEngine;
         this.identificationService = new CategoryIdentificationService();
         this.anchorDetectionService = new AnchorDetectionService();
         this.geometryNormalizationService = new GeometryNormalizationService();
+        this.fieldProcessingService = new FieldProcessingService(ocrEngine, extensionRegistry);
     }
 
     public DocumentResult process(Path source, RuntimeConfiguration configuration) {
@@ -91,31 +95,9 @@ public final class DocumentProcessor {
     }
 
     private List<FieldResult> extractFields(CategoryRuntimeConfiguration category, ProcessingImage pageImage, Transform transform) {
-        var results = new ArrayList<FieldResult>();
-        for (FieldDefinition field : category.fields()) {
-            var crop = crop(pageImage, field, transform);
-            var rawText = ocrEngine.recognize(crop, options(field.ocr())).value();
-            results.add(new FieldResult(field.id(), applyMinimalTransforms(rawText, field), ProcessingStatus.SUCCESS, List.of()));
-        }
-        return results;
-    }
-
-    private ProcessingImage crop(ProcessingImage image, FieldDefinition field, Transform transform) {
-        var resolvedRegion = transform.map(field.region());
-        if (image instanceof BufferedProcessingImage buffered) {
-            return buffered.crop(resolvedRegion);
-        }
-        return new BufferedProcessingImage(image.asBufferedImage()).crop(resolvedRegion);
-    }
-
-    private String applyMinimalTransforms(String value, FieldDefinition field) {
-        var result = value == null ? "" : value;
-        for (var transformer : field.transformers()) {
-            if ("trim".equals(transformer.id().value())) {
-                result = result.trim();
-            }
-        }
-        return result;
+        return category.fields().stream()
+            .map(field -> fieldProcessingService.extract(field, pageImage, transform))
+            .toList();
     }
 
     private OcrOptions options(pl.sk.ocr.config.runtime.OcrSettings settings) {
