@@ -16,9 +16,13 @@ import pl.sk.ocr.core.ocr.OcrOptions;
 import pl.sk.ocr.domain.config.ConfigurationVersion;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.identifier.CategoryId;
+import pl.sk.ocr.domain.identifier.AnchorId;
 import pl.sk.ocr.domain.identifier.FieldId;
 import pl.sk.ocr.domain.identifier.PageNumber;
+import pl.sk.ocr.domain.ocr.BoundingBox;
+import pl.sk.ocr.domain.ocr.Confidence;
 import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.ocr.OcrWord;
 import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.trace.TraceMode;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
@@ -44,6 +48,31 @@ class DocumentProcessorTest {
             });
     }
 
+    @Test
+    void returnsAmbiguousWhenMultipleCategoriesMatch() {
+        var reader = (pl.sk.ocr.core.document.DocumentReader) (source, options) ->
+            new RenderedDocument(Map.of(new PageNumber(1), new BufferedProcessingImage(testImage())));
+        var processor = new DocumentProcessor(reader, new FakeOcrEngine());
+        var base = configuration();
+        var second = new CategoryRuntimeConfiguration(
+            new CategoryId("invoice-b"),
+            new ConfigurationVersion("1.0"),
+            "Invoice B",
+            new SinglePageSelection(1),
+            OcrSettings.defaults(),
+            new GeometryConfiguration(100, 100, "NONE", List.of()),
+            base.categories().getFirst().identificationGroups(),
+            List.of(),
+            base.categories().getFirst().fields()
+        );
+
+        var result = processor.process(Path.of("ambiguous.pdf"), new RuntimeConfiguration(base.profile(), List.of(base.categories().getFirst(), second)));
+
+        assertThat(result.status()).isEqualTo(ProcessingStatus.FAILED);
+        assertThat(result.issues()).singleElement()
+            .satisfies(issue -> assertThat(issue.code().value()).isEqualTo("CATEGORY_AMBIGUOUS"));
+    }
+
     private static RuntimeConfiguration configuration() {
         var field = new FieldDefinition(
             new FieldId("document-number"),
@@ -64,8 +93,16 @@ class DocumentProcessorTest {
             "Invoice A",
             new SinglePageSelection(1),
             OcrSettings.defaults(),
-            List.of(new IdentificationGroup(List.of(new IdentificationCondition("TEXT", 1, "INVOICE", null, null)))),
-            List.of(),
+            new GeometryConfiguration(100, 100, "SINGLE_REFERENCE", List.of(new AnchorId("title"))),
+            List.of(new IdentificationGroup(List.of(new IdentificationCondition("TEXT", 1, "INVOICE", null, null, null)))),
+            List.of(new AnchorDefinition(
+                new AnchorId("title"),
+                1,
+                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of("text", "INVOICE")),
+                true,
+                new Region(10, 10, 20, 20),
+                null
+            )),
             List.of(field)
         );
         var profile = new ProfileRuntimeConfiguration(
@@ -96,7 +133,11 @@ class DocumentProcessorTest {
         @Override
         public OcrText recognize(ProcessingImage image, OcrOptions options) {
             if (image.width() == 100) {
-                return new OcrText("INVOICE", List.of());
+                return new OcrText("INVOICE", List.of(new OcrWord(
+                    "INVOICE",
+                    new BoundingBox(new Region(20, 20, 40, 40)),
+                    new Confidence(1.0)
+                )));
             }
             return new OcrText(" FV-123 ", List.of());
         }

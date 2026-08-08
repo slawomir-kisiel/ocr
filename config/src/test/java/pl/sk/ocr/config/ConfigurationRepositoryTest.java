@@ -90,6 +90,20 @@ class ConfigurationRepositoryTest {
                 .contains("EXTENSION_PARAMETERS_INVALID"));
     }
 
+    @Test
+    void rejectsUnknownGeometryAnchorReference() {
+        var loader = categoryLoader(List.of(
+            new TestExtension("normalized"),
+            new TestExtension("text")
+        ));
+
+        assertThatThrownBy(() -> loader.load(fixture("invalid/invalid-anchor-reference-category.json")))
+            .isInstanceOf(ConfigurationException.class)
+            .satisfies(error -> assertThat(((ConfigurationException) error).problems())
+                .extracting(ConfigurationProblem::code)
+                .contains("UNKNOWN_ANCHOR"));
+    }
+
     private static ConfigurationRepository repository() {
         return repository(List.of(
             new TestExtension("normalized"),

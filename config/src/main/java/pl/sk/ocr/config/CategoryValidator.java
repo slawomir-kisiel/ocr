@@ -28,7 +28,7 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         }
         validatePages(dto.pages(), "$.pages", problems);
         validateIdentification(dto.identification(), problems);
-        validateAnchors(dto.anchors(), problems);
+        validateAnchors(dto.anchors(), dto.geometry(), problems);
         validateFields(dto.fields(), problems);
         return problems;
     }
@@ -46,11 +46,12 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             }
             for (int j = 0; j < group.conditions().size(); j++) {
                 validateExtension(group.conditions().get(j).matcher(), "$.identification.groups[" + i + "].conditions[" + j + "].matcher", problems);
+                validateExtension(group.conditions().get(j).detector(), "$.identification.groups[" + i + "].conditions[" + j + "].detector", problems);
             }
         }
     }
 
-    private void validateAnchors(List<AnchorDto> anchors, List<ConfigurationProblem> problems) {
+    private void validateAnchors(List<AnchorDto> anchors, GeometryDto geometry, List<ConfigurationProblem> problems) {
         if (anchors == null) {
             problems.add(problem("ANCHORS_REQUIRED", "$.anchors", "Anchors array is required"));
             return;
@@ -66,6 +67,20 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             validateRegion(anchor.searchRegion(), "$.anchors[" + i + "].searchRegion", problems);
             if (anchor.referenceFeature() != null) {
                 validateRegion(anchor.referenceFeature().bounds(), "$.anchors[" + i + "].referenceFeature.bounds", problems);
+            }
+        }
+        validateGeometryAnchorReferences(anchors, geometry, problems);
+    }
+
+    private void validateGeometryAnchorReferences(List<AnchorDto> anchors, GeometryDto geometry, List<ConfigurationProblem> problems) {
+        if (geometry == null || geometry.strategy() == null || geometry.strategy().anchors() == null) {
+            return;
+        }
+        var ids = anchors.stream().map(AnchorDto::id).collect(java.util.stream.Collectors.toSet());
+        for (int i = 0; i < geometry.strategy().anchors().size(); i++) {
+            var anchorId = geometry.strategy().anchors().get(i);
+            if (!ids.contains(anchorId)) {
+                problems.add(problem("UNKNOWN_ANCHOR", "$.geometry.strategy.anchors[" + i + "]", "Unknown anchor: " + anchorId));
             }
         }
     }
@@ -138,7 +153,10 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
     }
 
     private void validateExtension(ExtensionRefDto ref, String path, List<ConfigurationProblem> problems) {
-        if (ref == null || ref.id() == null || ref.id().isBlank()) {
+        if (ref == null) {
+            return;
+        }
+        if (ref.id() == null || ref.id().isBlank()) {
             problems.add(problem("EXTENSION_NOT_FOUND", path, "Extension id is required"));
             return;
         }

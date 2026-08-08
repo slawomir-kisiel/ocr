@@ -37,6 +37,7 @@
     <jackson.version>2.17.2</jackson.version>
     <pdfbox.version>3.0.8</pdfbox.version>
     <tess4j.version>5.20.0</tess4j.version>
+    <zxing.version>3.5.4</zxing.version>
     <archunit.version>1.3.0</archunit.version>
     <jacoco.version>0.8.12</jacoco.version>
     <surefire.version>3.5.0</surefire.version>
@@ -94,6 +95,16 @@
         <groupId>net.sourceforge.tess4j</groupId>
         <artifactId>tess4j</artifactId>
         <version>${tess4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.zxing</groupId>
+        <artifactId>core</artifactId>
+        <version>${zxing.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.zxing</groupId>
+        <artifactId>javase</artifactId>
+        <version>${zxing.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

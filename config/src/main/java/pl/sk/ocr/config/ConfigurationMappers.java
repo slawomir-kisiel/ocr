@@ -25,6 +25,7 @@ final class ConfigurationMappers {
             dto.displayName(),
             pages(dto.pages()),
             ocr,
+            geometry(dto.geometry()),
             groups(dto.identification()),
             dto.anchors().stream().map(ConfigurationMappers::anchor).toList(),
             dto.fields().stream().map(field -> field(field, ocr)).toList()
@@ -98,6 +99,7 @@ final class ConfigurationMappers {
                     condition.page(),
                     condition.expectedText(),
                     extension(condition.matcher()),
+                    extension(condition.detector()),
                     region(condition.searchRegion())
                 ))
                 .toList()))
@@ -112,6 +114,22 @@ final class ConfigurationMappers {
             dto.required() == null || dto.required(),
             dto.referenceFeature() == null ? null : region(dto.referenceFeature().bounds()),
             region(dto.searchRegion())
+        );
+    }
+
+    private static GeometryConfiguration geometry(GeometryDto dto) {
+        if (dto == null) {
+            return new GeometryConfiguration(0, 0, "NONE", List.of());
+        }
+        var strategy = dto.strategy();
+        var anchorIds = strategy == null || strategy.anchors() == null
+            ? List.<AnchorId>of()
+            : strategy.anchors().stream().map(AnchorId::new).toList();
+        return new GeometryConfiguration(
+            dto.referenceWidth() == null ? 0 : dto.referenceWidth(),
+            dto.referenceHeight() == null ? 0 : dto.referenceHeight(),
+            strategy == null || strategy.type() == null ? "NONE" : strategy.type(),
+            anchorIds
         );
     }
 

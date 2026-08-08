@@ -1,0 +1,84 @@
+package pl.sk.ocr.core.identification;
+
+import java.util.List;
+import java.util.Locale;
+import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
+import pl.sk.ocr.config.runtime.IdentificationCondition;
+import pl.sk.ocr.domain.geometry.Region;
+import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.ocr.OcrWord;
+
+public final class CategoryIdentificationService {
+    public IdentificationResult identify(List<CategoryRuntimeConfiguration> categories, OcrText pageOcr) {
+        var matches = categories.stream()
+            .filter(category -> matches(category, pageOcr))
+            .toList();
+        if (matches.isEmpty()) {
+            return new IdentificationResult(IdentificationStatus.NOT_FOUND, null, matches);
+        }
+        if (matches.size() > 1) {
+            return new IdentificationResult(IdentificationStatus.AMBIGUOUS, null, matches);
+        }
+        return new IdentificationResult(IdentificationStatus.MATCHED, matches.getFirst(), matches);
+    }
+
+    private boolean matches(CategoryRuntimeConfiguration category, OcrText pageOcr) {
+        return category.identificationGroups().stream()
+            .anyMatch(group -> group.conditions().stream().allMatch(condition -> matches(condition, pageOcr)));
+    }
+
+    private boolean matches(IdentificationCondition condition, OcrText pageOcr) {
+        return switch (condition.type()) {
+            case "TEXT" -> containsText(pageOcr, condition.expectedText(), condition.searchRegion(), false);
+            case "TEXT_FUZZY" -> containsText(pageOcr, condition.expectedText(), condition.searchRegion(), true);
+            case "QR", "BARCODE" -> false;
+            default -> false;
+        };
+    }
+
+    private boolean containsText(OcrText ocr, String expected, Region searchRegion, boolean fuzzy) {
+        var haystack = searchRegion == null ? ocr.value() : wordsInRegion(ocr.words(), searchRegion);
+        var normalizedHaystack = normalize(haystack);
+        var normalizedExpected = normalize(expected);
+        if (normalizedHaystack.contains(normalizedExpected)) {
+            return true;
+        }
+        return fuzzy && similarity(normalizedHaystack, normalizedExpected) >= 0.80;
+    }
+
+    private String wordsInRegion(List<OcrWord> words, Region region) {
+        return words.stream()
+            .filter(word -> region.contains(word.boundingBox().region().topLeft()) || region.contains(word.boundingBox().region().bottomRight()))
+            .map(OcrWord::text)
+            .reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private static double similarity(String a, String b) {
+        if (a.isEmpty() || b.isEmpty()) {
+            return 0.0;
+        }
+        var distance = levenshtein(a, b);
+        return 1.0 - ((double) distance / Math.max(a.length(), b.length()));
+    }
+
+    private static int levenshtein(String a, String b) {
+        var dp = new int[a.length() + 1][b.length() + 1];
+        for (int i = 0; i <= a.length(); i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= b.length(); j++) {
+            dp[0][j] = j;
+        }
+        for (int i = 1; i <= a.length(); i++) {
+            for (int j = 1; j <= b.length(); j++) {
+                var cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1), dp[i - 1][j - 1] + cost);
+            }
+        }
+        return dp[a.length()][b.length()];
+    }
+}

@@ -10,6 +10,7 @@ public record CategoryRuntimeConfiguration(
     String displayName,
     PageSelection pages,
     OcrSettings ocr,
+    GeometryConfiguration geometry,
     List<IdentificationGroup> identificationGroups,
     List<AnchorDefinition> anchors,
     List<FieldDefinition> fields
