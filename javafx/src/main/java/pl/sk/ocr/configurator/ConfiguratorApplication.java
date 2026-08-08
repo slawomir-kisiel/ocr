@@ -21,6 +21,9 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import pl.sk.ocr.config.dto.ConditionGroupDto;
+import pl.sk.ocr.config.dto.GeometryDto;
+import pl.sk.ocr.config.dto.GeometryStrategyDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
@@ -64,6 +67,15 @@ public final class ConfiguratorApplication extends Application {
     private final TextField ocrLanguage = new TextField();
     private final TextField ocrDatapath = new TextField();
     private final Label detailsInfo = new Label();
+    private final Label identificationGroupsCount = new Label();
+    private final Button addIdentificationGroup = new Button("Add Group");
+    private final Button removeLastIdentificationGroup = new Button("Remove Last Group");
+    private final Label anchorsCount = new Label();
+    private final Label fieldsCount = new Label();
+    private final TextField geometryReferenceWidth = new TextField();
+    private final TextField geometryReferenceHeight = new TextField();
+    private final TextField geometryStrategyType = new TextField();
+    private final TextField geometryStrategyAnchors = new TextField();
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
@@ -134,6 +146,7 @@ public final class ConfiguratorApplication extends Application {
         configurationTree.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> refreshDetails());
         validationList.setPrefHeight(180);
         configureCategoryDetailsForm();
+        configureOtherDetailsForms();
         var right = new VBox(8, new Label("Properties / Details"), detailsPanel, new Label("Validation"), validationList);
         right.setPadding(new Insets(8));
         VBox.setVgrow(detailsPanel, Priority.ALWAYS);
@@ -348,6 +361,7 @@ public final class ConfiguratorApplication extends Application {
             detailsPanel.setDisable(true);
             detailsInfo.setText("Create or open a category configuration.");
             clearCategoryDetailsForm();
+            detailsPanel.getChildren().setAll(emptyDetailsForm());
             refreshingDetails = false;
             return;
         }
@@ -365,8 +379,22 @@ public final class ConfiguratorApplication extends Application {
         var ocr = draft.ocr();
         ocrLanguage.setText(ocr == null ? "" : nullToEmpty(ocr.language()));
         ocrDatapath.setText(ocr == null ? "" : nullToEmpty(ocr.datapath()));
+        identificationGroupsCount.setText(String.valueOf(draft.identification() == null || draft.identification().groups() == null
+            ? 0
+            : draft.identification().groups().size()));
+        anchorsCount.setText(String.valueOf(draft.anchors() == null ? 0 : draft.anchors().size()));
+        fieldsCount.setText(String.valueOf(draft.fields() == null ? 0 : draft.fields().size()));
+        var geometry = draft.geometry();
+        geometryReferenceWidth.setText(geometry == null || geometry.referenceWidth() == null ? "" : geometry.referenceWidth().toString());
+        geometryReferenceHeight.setText(geometry == null || geometry.referenceHeight() == null ? "" : geometry.referenceHeight().toString());
+        var strategy = geometry == null ? null : geometry.strategy();
+        geometryStrategyType.setText(strategy == null ? "" : nullToEmpty(strategy.type()));
+        geometryStrategyAnchors.setText(strategy == null || strategy.anchors() == null
+            ? ""
+            : String.join(", ", strategy.anchors()));
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
+        detailsPanel.getChildren().setAll(detailsFormForSelection());
         refreshingDetails = false;
     }
 
@@ -413,6 +441,57 @@ public final class ConfiguratorApplication extends Application {
         addDraftListener(ocrLanguage, this::applyOcrDefaults);
         addDraftListener(ocrDatapath, this::applyOcrDefaults);
 
+        updatePagePolicyFieldsVisibility();
+    }
+
+    private void configureOtherDetailsForms() {
+        installTooltip(identificationGroupsCount, "Number of OR groups in category identification.");
+        installTooltip(addIdentificationGroup, "Add a new empty OR group.");
+        installTooltip(removeLastIdentificationGroup, "Remove the last OR group.");
+        installTooltip(anchorsCount, "Number of anchors configured for geometry detection.");
+        installTooltip(fieldsCount, "Number of fields configured for extraction.");
+        installTooltip(geometryReferenceWidth, "Reference document width used by geometry normalization.");
+        installTooltip(geometryReferenceHeight, "Reference document height used by geometry normalization.");
+        installTooltip(geometryStrategyType, "Geometry strategy type, for example NONE.");
+        installTooltip(geometryStrategyAnchors, "Comma-separated anchor IDs used by geometry strategy.");
+
+        addIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
+            viewModel.addIdentificationGroup(new ConditionGroupDto(java.util.List.of()));
+            refreshAll();
+        }));
+        removeLastIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
+            var groups = viewModel.draft().identification() == null || viewModel.draft().identification().groups() == null
+                ? java.util.List.<ConditionGroupDto>of()
+                : viewModel.draft().identification().groups();
+            if (!groups.isEmpty()) {
+                viewModel.removeIdentificationGroup(groups.size() - 1);
+                refreshAll();
+            }
+        }));
+        addDraftListener(geometryReferenceWidth, this::applyGeometry);
+        addDraftListener(geometryReferenceHeight, this::applyGeometry);
+        addDraftListener(geometryStrategyType, this::applyGeometry);
+        addDraftListener(geometryStrategyAnchors, this::applyGeometry);
+    }
+
+    private VBox detailsFormForSelection() {
+        var selected = selectedDetailsNode();
+        if (selected.startsWith("Identification")) {
+            return identificationDetailsForm();
+        }
+        if (selected.startsWith("Anchors")) {
+            return anchorsDetailsForm();
+        }
+        if (selected.startsWith("Geometry")) {
+            return geometryDetailsForm();
+        }
+        if (selected.startsWith("Fields")) {
+            return fieldsDetailsForm();
+        }
+        return categoryDetailsForm();
+    }
+
+    private VBox categoryDetailsForm() {
         var categorySection = section("Category");
         addFormRow(categorySection, "ID", categoryId);
         addFormRow(categorySection, "Display Name", categoryDisplayName);
@@ -420,6 +499,7 @@ public final class ConfiguratorApplication extends Application {
         addFormRow(categorySection, "Version", categoryVersion);
 
         var pagePolicySection = section("Page Policy");
+        detachFromParent(pageTypeControls);
         pagePolicySection.getChildren().add(pageTypeControls);
         addFormRow(pagePolicySection, "Page", pageNumber, pageNumberField);
         addFormRow(pagePolicySection, "From", pageFrom, pageFromField);
@@ -429,10 +509,46 @@ public final class ConfiguratorApplication extends Application {
         var ocrSection = section("OCR");
         addFormRow(ocrSection, "Language", ocrLanguage);
         addFormRow(ocrSection, "Datapath", ocrDatapath);
+        return new VBox(10, categorySection, pagePolicySection, ocrSection, detailsInfo);
+    }
 
-        var form = new VBox(10, categorySection, pagePolicySection, ocrSection);
-        detailsPanel.getChildren().setAll(form, detailsInfo);
-        updatePagePolicyFieldsVisibility();
+    private VBox identificationDetailsForm() {
+        var section = section("Identification");
+        addFormRow(section, "Groups", identificationGroupsCount);
+        detachFromParent(addIdentificationGroup);
+        detachFromParent(removeLastIdentificationGroup);
+        section.getChildren().add(new HBox(8, addIdentificationGroup, removeLastIdentificationGroup));
+        return new VBox(10, section, detailsInfo);
+    }
+
+    private VBox anchorsDetailsForm() {
+        var section = section("Anchors");
+        addFormRow(section, "Anchors", anchorsCount);
+        return new VBox(10, section, detailsInfo);
+    }
+
+    private VBox geometryDetailsForm() {
+        var section = section("Geometry");
+        addFormRow(section, "Reference Width", geometryReferenceWidth);
+        addFormRow(section, "Reference Height", geometryReferenceHeight);
+        addFormRow(section, "Strategy Type", geometryStrategyType);
+        addFormRow(section, "Strategy Anchors", geometryStrategyAnchors);
+        return new VBox(10, section, detailsInfo);
+    }
+
+    private VBox fieldsDetailsForm() {
+        var section = section("Fields");
+        addFormRow(section, "Fields", fieldsCount);
+        return new VBox(10, section, detailsInfo);
+    }
+
+    private VBox emptyDetailsForm() {
+        var section = section("Category");
+        var message = new Label("Create or open a category configuration.");
+        message.setWrapText(true);
+        installTooltip(message, "No category draft is currently open.");
+        section.getChildren().add(message);
+        return new VBox(10, section, detailsInfo);
     }
 
     private VBox section(String title) {
@@ -454,6 +570,8 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void addFormRow(VBox form, String labelText, javafx.scene.Node control, VBox field) {
+        detachFromParent(control);
+        detachFromParent(field);
         var label = new Label(labelText);
         if (control instanceof Control fxControl) {
             label.setLabelFor(fxControl);
@@ -479,6 +597,12 @@ public final class ConfiguratorApplication extends Application {
     private void setVisibleManaged(javafx.scene.Node node, boolean visible) {
         node.setVisible(visible);
         node.setManaged(visible);
+    }
+
+    private void detachFromParent(javafx.scene.Node node) {
+        if (node.getParent() instanceof javafx.scene.layout.Pane pane) {
+            pane.getChildren().remove(node);
+        }
     }
 
     private void installTooltip(Control control, String text) {
@@ -522,6 +646,20 @@ public final class ConfiguratorApplication extends Application {
         }
         runUiSafe(() -> {
             viewModel.updateOcr(new pl.sk.ocr.config.dto.OcrSettingsDto(blankToNull(ocrLanguage.getText()), blankToNull(ocrDatapath.getText())));
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void applyGeometry() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.updateGeometry(new GeometryDto(
+                parseInteger(geometryReferenceWidth.getText()),
+                parseInteger(geometryReferenceHeight.getText()),
+                new GeometryStrategyDto(blankToNull(geometryStrategyType.getText()), parseStringList(geometryStrategyAnchors.getText()))
+            ));
             refreshAfterDraftEdit();
         });
     }
@@ -570,6 +708,17 @@ public final class ConfiguratorApplication extends Application {
             .toList();
     }
 
+    private java.util.List<String> parseStringList(String value) {
+        var text = blankToNull(value);
+        if (text == null) {
+            return java.util.List.of();
+        }
+        return java.util.Arrays.stream(text.split(","))
+            .map(String::trim)
+            .filter(part -> !part.isEmpty())
+            .toList();
+    }
+
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
@@ -581,6 +730,11 @@ public final class ConfiguratorApplication extends Application {
     private String selectedPageType() {
         var selected = pageType.getSelectedToggle();
         return selected == null ? PAGE_TYPE_SINGLE : selected.getUserData().toString();
+    }
+
+    private String selectedDetailsNode() {
+        var selected = configurationTree.getSelectionModel().getSelectedItem();
+        return selected == null || selected.getValue() == null ? "" : selected.getValue();
     }
 
     private void selectPageType(String type) {
