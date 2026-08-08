@@ -207,7 +207,7 @@ public final class CategoryEditorViewModel {
             session.pageCache().clear();
             session.pageCache().putAll(rendered.pages());
             session.currentPage(1);
-            status.set("Document opened: " + path.getFileName());
+            status.set("Document opened: " + path.getFileName() + " | pages=" + rendered.pages().size());
         });
     }
 

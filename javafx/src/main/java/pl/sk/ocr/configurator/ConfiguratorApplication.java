@@ -21,6 +21,7 @@ import javafx.scene.input.ZoomEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
@@ -87,6 +88,10 @@ public final class ConfiguratorApplication extends Application {
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
+    private final Button previousPage = compactButton("<", "Previous Page", () -> changePage(-1));
+    private final Button nextPage = compactButton(">", "Next Page", () -> changePage(1));
+    private final TextField viewerPageNumber = new TextField("1");
+    private final Label viewerPageTotal = new Label("/0");
     private double zoom = 1.0;
     private boolean refreshingDetails;
 
@@ -137,13 +142,11 @@ public final class ConfiguratorApplication extends Application {
         var save = button("Save", () -> saveCategory(stage, false));
         var saveAs = button("Save As", () -> saveCategory(stage, true));
         var openDocument = button("Open Document", () -> chooseDocument(stage));
-        var previous = button("Previous Page", () -> changePage(-1));
-        var next = button("Next Page", () -> changePage(1));
         var runOcr = button("Run OCR", this::runOcr);
         var testCategory = button("Test Category", this::validate);
         var validate = button("Validate", this::validate);
         return new ToolBar(newCategory, openConfig, save, saveAs, new Separator(), openDocument,
-            previous, next, new Separator(), runOcr, testCategory, validate);
+            new Separator(), runOcr, testCategory, validate);
     }
 
     private void configureAccelerators(Scene scene, Stage stage) {
@@ -198,9 +201,28 @@ public final class ConfiguratorApplication extends Application {
         zoomToolbar.setMaxWidth(52);
         zoomToolbar.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 0 1 0 0;");
 
-        var pane = new HBox(zoomToolbar, documentScroll);
+        var content = new BorderPane(documentScroll);
+        content.setBottom(pageNavigator());
+        var pane = new HBox(zoomToolbar, content);
+        HBox.setHgrow(content, Priority.ALWAYS);
         HBox.setHgrow(documentScroll, Priority.ALWAYS);
         return pane;
+    }
+
+    private HBox pageNavigator() {
+        viewerPageNumber.setPrefColumnCount(4);
+        viewerPageNumber.setMaxWidth(64);
+        viewerPageNumber.setTooltip(new Tooltip("Current page. Enter page number and press Enter."));
+        viewerPageNumber.setOnAction(event -> goToPageFromInput());
+        viewerPageTotal.setMinWidth(36);
+        var spacer = new Region();
+        var navigator = new HBox(6, spacer, previousPage, viewerPageNumber, viewerPageTotal, nextPage);
+        navigator.setAlignment(Pos.CENTER_RIGHT);
+        navigator.setPadding(new Insets(6, 8, 6, 8));
+        navigator.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 1 0 0 0;");
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        refreshPageStatus();
+        return navigator;
     }
 
     private HBox statusBar() {
@@ -222,6 +244,15 @@ public final class ConfiguratorApplication extends Application {
         button.setMinSize(36, 32);
         button.setPrefSize(36, 32);
         button.setMaxSize(36, 32);
+        return button;
+    }
+
+    private Button compactButton(String text, String tooltip, Runnable action) {
+        var button = button(text, action);
+        button.setTooltip(new Tooltip(tooltip));
+        button.setMinSize(36, 28);
+        button.setPrefSize(36, 28);
+        button.setMaxSize(36, 28);
         return button;
     }
 
@@ -324,7 +355,31 @@ public final class ConfiguratorApplication extends Application {
         if (pages == 0) {
             return;
         }
-        viewModel.session().currentPage(Math.max(1, Math.min(pages, viewModel.session().currentPage() + delta)));
+        goToPage(Math.max(1, Math.min(pages, viewModel.session().currentPage() + delta)));
+    }
+
+    private void goToPageFromInput() {
+        var pages = viewModel.session().pageCache().size();
+        if (pages == 0) {
+            refreshPageStatus();
+            return;
+        }
+        try {
+            var requested = Integer.parseInt(viewerPageNumber.getText().trim());
+            if (requested < 1 || requested > pages) {
+                status.setText("Page must be between 1 and " + pages);
+                refreshPageStatus();
+                return;
+            }
+            goToPage(requested);
+        } catch (NumberFormatException e) {
+            status.setText("Page must be a number");
+            refreshPageStatus();
+        }
+    }
+
+    private void goToPage(int page) {
+        viewModel.session().currentPage(page);
         renderPage();
         refreshAll();
     }
@@ -953,8 +1008,16 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void refreshPageStatus() {
-        pageLabel.setText("Page " + viewModel.session().currentPage() + "/" + viewModel.session().pageCache().size()
+        var pages = viewModel.session().pageCache().size();
+        var current = pages == 0 ? 0 : viewModel.session().currentPage();
+        pageLabel.setText("Page " + current + "/" + pages
             + " | Zoom " + Math.round(zoom * 100) + "%");
+        viewerPageNumber.setText(String.valueOf(current == 0 ? 1 : current));
+        viewerPageTotal.setText("/" + pages);
+        previousPage.setDisable(pages <= 1 || current <= 1);
+        nextPage.setDisable(pages <= 1 || current >= pages);
+        viewerPageNumber.setEditable(pages > 1);
+        viewerPageNumber.setDisable(pages == 0);
     }
 
     private String labelOrDefault(String value, String fallback) {
