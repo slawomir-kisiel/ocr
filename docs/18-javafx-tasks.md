@@ -170,11 +170,18 @@ Dodać zaznaczanie regionu myszą.
 
 Zakres:
 
-- tryb `Select`,
-- tryb `Pan`,
-- tryb `Draw Region`,
-- kontrolki wyboru trybu jako ikony w pionowym toolbarze w lewym górnym rogu panelu podglądu,
-- skróty klawiaturowe dla trybów wyboru,
+- tryb `Select` (ikona mode-select.svg),
+- tryb `Pan` (ikona mode-pan.svg),
+- tryb `Draw Region` (ikona mode-draw-region.svg) aktywowany z konkretnej właściwości typu `Region`,
+- globalna ikona `Draw Region` w toolbarze jest nieaktywna, dopóki nie jest wybrany target edycji regionu,
+- przy każdej kontrolce właściwości typu `Region` w panelu properties jest przycisk z ikoną `mode-draw-region.svg`,
+- kliknięcie przycisku regionu ustawia aktywny `RegionEditTarget`, np. `field[2].region`, `anchor[0].searchRegion`, `anchor[0].referenceFeature.bounds` albo `condition[0][1].searchRegion`,
+- focus poza aktywną kontrolką regionu albo `Esc` anuluje target i wyłącza `Draw Region`,
+- po zakończeniu rysowania region trafia bezpośrednio do aktywnej właściwości przez ViewModel/`CategoryDraftEditor`,
+- po zapisaniu regionu tryb wraca do `Select`,
+- opcjonalne rozszerzenie po MVP: free draw bez targetu z menu kontekstowym `Use as Field Region`, `Use as Anchor Search Region`, `Use as Anchor Reference Feature`, `Use as Condition Search Region`,
+- kontrolki wyboru trybu jako ikony w pionowym toolbarze w lewym górnym rogu panelu podglądu ponad ikonkami do zoom, oddzielone od nich separatorem poziomum (linią),
+- skróty klawiaturowe dla trybów wyboru (S, P, R), przy czym `R` działa tylko przy aktywnym `RegionEditTarget`,
 - rysowanie prostokąta na overlay,
 - normalizacja regionu niezależnie od kierunku przeciągania,
 - zapis regionu w koordynatach obrazu/reference,
@@ -184,6 +191,9 @@ Kryteria akceptacji:
 
 - zaznaczenie działa przy dowolnym zoomie,
 - wynikowy `Region` nie zależy od aktualnej skali viewera,
+- `Draw Region` nie zapisuje regionu bez jawnego targetu z panelu properties,
+- anulowanie `Esc` lub utrata aktywnego targetu nie zmienia draftu,
+- po narysowaniu regionu właściwa kontrolka properties pokazuje nowe wartości,
 - są testy coordinate mapping i region normalization.
 
 ### FX-011 Viewer Layers

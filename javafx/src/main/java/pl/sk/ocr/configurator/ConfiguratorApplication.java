@@ -12,6 +12,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.Cursor;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
@@ -31,6 +32,7 @@ import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.GeometryDto;
 import pl.sk.ocr.config.dto.GeometryStrategyDto;
+import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
@@ -85,6 +87,11 @@ public final class ConfiguratorApplication extends Application {
     private final TextField geometryReferenceHeight = new TextField();
     private final TextField geometryStrategyType = new TextField();
     private final TextField geometryStrategyAnchors = new TextField();
+    private final TextField fieldRegionX = new TextField();
+    private final TextField fieldRegionY = new TextField();
+    private final TextField fieldRegionWidth = new TextField();
+    private final TextField fieldRegionHeight = new TextField();
+    private final Button drawFieldRegion = new Button();
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
@@ -92,8 +99,13 @@ public final class ConfiguratorApplication extends Application {
     private final Button nextPage = compactButton(">", "Next Page", () -> changePage(1));
     private final TextField viewerPageNumber = new TextField("1");
     private final Label viewerPageTotal = new Label("/0");
+    private Button selectMode;
+    private Button panMode;
+    private Button drawRegionMode;
     private double zoom = 1.0;
     private boolean refreshingDetails;
+    private ViewerMode viewerMode = ViewerMode.SELECT;
+    private RegionEditTarget regionEditTarget;
 
     public static void main(String[] args) {
         launch(args);
@@ -160,6 +172,14 @@ public final class ConfiguratorApplication extends Application {
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.NUMPAD0, KeyCombination.CONTROL_DOWN), this::actualSize);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN), this::fitPage);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.W, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), this::fitWidth);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S), () -> setViewerMode(ViewerMode.SELECT));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.P), () -> setViewerMode(ViewerMode.PAN));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.R), () -> {
+            if (regionEditTarget != null) {
+                setViewerMode(ViewerMode.DRAW_REGION);
+            }
+        });
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ESCAPE), this::cancelRegionEdit);
     }
 
     private SplitPane center() {
@@ -176,7 +196,7 @@ public final class ConfiguratorApplication extends Application {
         VBox.setVgrow(detailsPanel, Priority.ALWAYS);
         documentScroll.setFitToWidth(false);
         documentScroll.setFitToHeight(false);
-        documentScroll.setPannable(true);
+        documentScroll.setPannable(false);
         documentScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         documentScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         documentScroll.addEventFilter(ScrollEvent.SCROLL, this::handleScrollZoom);
@@ -187,7 +207,18 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private HBox documentViewer() {
+        selectMode = iconButton("mode-select.svg", "Select (S)", () -> setViewerMode(ViewerMode.SELECT));
+        panMode = iconButton("mode-pan.svg", "Pan (P)", () -> setViewerMode(ViewerMode.PAN));
+        drawRegionMode = iconButton("mode-draw-region.svg", "Draw Region (R)", () -> {
+            if (regionEditTarget != null) {
+                setViewerMode(ViewerMode.DRAW_REGION);
+            }
+        });
         var zoomToolbar = new VBox(6,
+            selectMode,
+            panMode,
+            drawRegionMode,
+            new Separator(),
             iconButton("zoom-in.svg", "Zoom In (Ctrl++)", () -> setZoom(zoom * 1.25)),
             iconButton("zoom-out.svg", "Zoom Out (Ctrl+-)", () -> setZoom(zoom / 1.25)),
             iconButton("zoom-fit.svg", "Fit Page (Ctrl+F)", this::fitPage),
@@ -206,6 +237,7 @@ public final class ConfiguratorApplication extends Application {
         var pane = new HBox(zoomToolbar, content);
         HBox.setHgrow(content, Priority.ALWAYS);
         HBox.setHgrow(documentScroll, Priority.ALWAYS);
+        refreshViewerModeButtons();
         return pane;
     }
 
@@ -387,7 +419,7 @@ public final class ConfiguratorApplication extends Application {
     private void setZoom(double value) {
         zoom = boundedZoom(value);
         applyImageSize();
-        viewer.setMapper(new ScaledCoordinateMapper(zoom, 0, 0));
+        updateViewerMapper();
         renderOcrOverlay();
         refreshAll();
     }
@@ -430,13 +462,46 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         var factor = event.getDeltaY() > 0 ? 1.10 : 1.0 / 1.10;
-        setZoom(zoom * factor);
+        setZoomAround(zoom * factor, event.getSceneX(), event.getSceneY());
         event.consume();
     }
 
     private void handleTouchpadZoom(ZoomEvent event) {
-        setZoom(zoom * event.getZoomFactor());
+        setZoomAround(zoom * event.getZoomFactor(), event.getSceneX(), event.getSceneY());
         event.consume();
+    }
+
+    private void setZoomAround(double value, double sceneX, double sceneY) {
+        updateViewerMapper();
+        var viewport = documentScroll.getViewportBounds();
+        var mouseInViewport = documentScroll.sceneToLocal(sceneX, sceneY);
+        var mouseX = Math.max(0, Math.min(viewport.getWidth(), mouseInViewport.getX()));
+        var mouseY = Math.max(0, Math.min(viewport.getHeight(), mouseInViewport.getY()));
+        var mouseInViewer = viewer.sceneToLocal(sceneX, sceneY);
+        var imagePoint = viewer.mapper().screenToImage(new ViewerPoint(mouseInViewer.getX(), mouseInViewer.getY()));
+
+        setZoom(value);
+        documentScroll.layout();
+        viewer.layout();
+
+        var currentViewport = documentScroll.getViewportBounds();
+        var targetInViewer = viewer.mapper().imageToScreen(imagePoint);
+        var newScrollX = targetInViewer.x() - mouseX;
+        var newScrollY = targetInViewer.y() - mouseY;
+        documentScroll.setHvalue(scrollValue(newScrollX, viewer.getBoundsInLocal().getWidth(), currentViewport.getWidth()));
+        documentScroll.setVvalue(scrollValue(newScrollY, viewer.getBoundsInLocal().getHeight(), currentViewport.getHeight()));
+        Platform.runLater(() -> {
+            documentScroll.setHvalue(scrollValue(newScrollX, viewer.getBoundsInLocal().getWidth(), documentScroll.getViewportBounds().getWidth()));
+            documentScroll.setVvalue(scrollValue(newScrollY, viewer.getBoundsInLocal().getHeight(), documentScroll.getViewportBounds().getHeight()));
+        });
+    }
+
+    private double scrollValue(double offset, double contentSize, double viewportSize) {
+        var scrollable = Math.max(0, contentSize - viewportSize);
+        if (scrollable == 0) {
+            return 0;
+        }
+        return Math.max(0, Math.min(1, offset / scrollable));
     }
 
     private void renderPage() {
@@ -458,6 +523,11 @@ public final class ConfiguratorApplication extends Application {
         pageImage.setFitWidth(width);
         pageImage.setFitHeight(height);
         viewer.setContentSize(width, height);
+    }
+
+    private void updateViewerMapper() {
+        var padding = viewer.padding();
+        viewer.setMapper(new ScaledCoordinateMapper(zoom, padding.getLeft(), padding.getTop()));
     }
 
     private void renderOcrOverlay() {
@@ -635,6 +705,12 @@ public final class ConfiguratorApplication extends Application {
         geometryStrategyAnchors.setText(strategy == null || strategy.anchors() == null
             ? ""
             : String.join(", ", strategy.anchors()));
+        var selectedField = selectedField();
+        var selectedRegion = selectedField == null ? null : selectedField.region();
+        fieldRegionX.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.x()));
+        fieldRegionY.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.y()));
+        fieldRegionWidth.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.width()));
+        fieldRegionHeight.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.height()));
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
         detailsPanel.getChildren().setAll(detailsFormForSelection());
@@ -697,6 +773,15 @@ public final class ConfiguratorApplication extends Application {
         installTooltip(geometryReferenceHeight, "Reference document height used by geometry normalization.");
         installTooltip(geometryStrategyType, "Geometry strategy type, for example NONE.");
         installTooltip(geometryStrategyAnchors, "Comma-separated anchor IDs used by geometry strategy.");
+        installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
+        installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
+        installTooltip(fieldRegionWidth, "Field region width in image/reference coordinates.");
+        installTooltip(fieldRegionHeight, "Field region height in image/reference coordinates.");
+        drawFieldRegion.setGraphic(svgIcon("mode-draw-region.svg"));
+        drawFieldRegion.setTooltip(new Tooltip("Draw field region on document preview."));
+        drawFieldRegion.setMinSize(36, 32);
+        drawFieldRegion.setPrefSize(36, 32);
+        drawFieldRegion.setMaxSize(36, 32);
 
         addIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
             viewModel.addIdentificationGroup(new ConditionGroupDto(java.util.List.of()));
@@ -715,6 +800,11 @@ public final class ConfiguratorApplication extends Application {
         addDraftListener(geometryReferenceHeight, this::applyGeometry);
         addDraftListener(geometryStrategyType, this::applyGeometry);
         addDraftListener(geometryStrategyAnchors, this::applyGeometry);
+        addDraftListener(fieldRegionX, this::applySelectedFieldRegion);
+        addDraftListener(fieldRegionY, this::applySelectedFieldRegion);
+        addDraftListener(fieldRegionWidth, this::applySelectedFieldRegion);
+        addDraftListener(fieldRegionHeight, this::applySelectedFieldRegion);
+        drawFieldRegion.setOnAction(event -> activateFieldRegionDrawing());
     }
 
     private VBox detailsFormForSelection() {
@@ -774,7 +864,17 @@ public final class ConfiguratorApplication extends Application {
 
     private VBox fieldsDetailsForm() {
         var section = section("Fields");
-        addFormRow(section, "Fields", fieldsCount);
+        var selected = selectedTreeNode();
+        if (selected != null && selected.type() == TreeNodeType.FIELD) {
+            addFormRow(section, "Region X", fieldRegionX);
+            addFormRow(section, "Region Y", fieldRegionY);
+            addFormRow(section, "Region Width", fieldRegionWidth);
+            addFormRow(section, "Region Height", fieldRegionHeight);
+            detachFromParent(drawFieldRegion);
+            section.getChildren().add(drawFieldRegion);
+        } else {
+            addFormRow(section, "Fields", fieldsCount);
+        }
         return new VBox(10, section, detailsInfo);
     }
 
@@ -900,6 +1000,82 @@ public final class ConfiguratorApplication extends Application {
         });
     }
 
+    private void applySelectedFieldRegion() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.FIELD) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.updateFieldRegion(selected.index(), new RegionDto(
+                parseDouble(fieldRegionX.getText()),
+                parseDouble(fieldRegionY.getText()),
+                parseDouble(fieldRegionWidth.getText()),
+                parseDouble(fieldRegionHeight.getText())
+            ));
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void activateFieldRegionDrawing() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.FIELD) {
+            status.setText("Select a field to draw its region");
+            return;
+        }
+        regionEditTarget = new RegionEditTarget(RegionTargetType.FIELD_REGION, selected.index());
+        setViewerMode(ViewerMode.DRAW_REGION);
+    }
+
+    private void applyDrawnRegion(RegionDto region) {
+        if (regionEditTarget == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            if (regionEditTarget.type() == RegionTargetType.FIELD_REGION) {
+                viewModel.updateFieldRegion(regionEditTarget.index(), region);
+            }
+            regionEditTarget = null;
+            setViewerMode(ViewerMode.SELECT);
+            refreshAll();
+        });
+    }
+
+    private void cancelRegionEdit() {
+        regionEditTarget = null;
+        setViewerMode(ViewerMode.SELECT);
+        status.setText("Region drawing cancelled");
+    }
+
+    private void setViewerMode(ViewerMode mode) {
+        if (mode == ViewerMode.DRAW_REGION && regionEditTarget == null) {
+            status.setText("Select a region property first");
+            return;
+        }
+        viewerMode = mode;
+        documentScroll.setPannable(mode == ViewerMode.PAN);
+        viewer.mode(mode);
+        refreshViewerModeButtons();
+        status.setText("Viewer mode: " + mode.label());
+    }
+
+    private void refreshViewerModeButtons() {
+        styleModeButton(selectMode, viewerMode == ViewerMode.SELECT);
+        styleModeButton(panMode, viewerMode == ViewerMode.PAN);
+        styleModeButton(drawRegionMode, viewerMode == ViewerMode.DRAW_REGION);
+    }
+
+    private void styleModeButton(Button button, boolean selected) {
+        if (button == null) {
+            return;
+        }
+        button.setStyle(selected
+            ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-width: 1.5; -fx-border-radius: 4; -fx-background-radius: 4;"
+            : "");
+    }
+
     private void refreshAfterDraftEdit() {
         refreshTree();
         status.setText(viewModel.status());
@@ -930,6 +1106,14 @@ public final class ConfiguratorApplication extends Application {
             return null;
         }
         return Integer.parseInt(text);
+    }
+
+    private double parseDouble(String value) {
+        var text = blankToNull(value);
+        if (text == null) {
+            return 0.0;
+        }
+        return Double.parseDouble(text);
     }
 
     private java.util.List<Integer> parseIntegerList(String value) {
@@ -969,8 +1153,22 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private TreeNodeType selectedNodeType() {
+        var selected = selectedTreeNode();
+        return selected == null ? TreeNodeType.ROOT : selected.type();
+    }
+
+    private ConfigurationTreeNode selectedTreeNode() {
         var selected = configurationTree.getSelectionModel().getSelectedItem();
-        return selected == null || selected.getValue() == null ? TreeNodeType.ROOT : selected.getValue().type();
+        return selected == null ? null : selected.getValue();
+    }
+
+    private pl.sk.ocr.config.dto.FieldDto selectedField() {
+        var selected = selectedTreeNode();
+        var fields = viewModel.draft() == null || viewModel.draft().fields() == null ? List.<pl.sk.ocr.config.dto.FieldDto>of() : viewModel.draft().fields();
+        if (selected == null || selected.type() != TreeNodeType.FIELD || selected.index() < 0 || selected.index() >= fields.size()) {
+            return null;
+        }
+        return fields.get(selected.index());
     }
 
     private String selectedTreeNodeId() {
@@ -1049,16 +1247,65 @@ public final class ConfiguratorApplication extends Application {
         alert.showAndWait();
     }
 
-    private static final class PaneOverlay extends javafx.scene.layout.Pane {
+    private final class PaneOverlay extends javafx.scene.layout.Pane {
         private final ImageView imageView;
         private ScaledCoordinateMapper mapper = new ScaledCoordinateMapper(1, 0, 0);
+        private ViewerMode mode = ViewerMode.SELECT;
+        private ViewerPoint dragStart;
+        private Rectangle draftRegion;
 
         PaneOverlay(ImageView imageView) {
             this.imageView = imageView;
             getChildren().add(imageView);
             setPadding(new Insets(12));
             imageView.setPreserveRatio(true);
+            setOnMousePressed(event -> {
+                if (mode != ViewerMode.DRAW_REGION) {
+                    return;
+                }
+                dragStart = new ViewerPoint(event.getX(), event.getY());
+                draftRegion = new Rectangle(event.getX(), event.getY(), 0, 0);
+                draftRegion.setFill(Color.color(0.12, 0.48, 0.93, 0.18));
+                draftRegion.setStroke(Color.web("#1f7aec"));
+                draftRegion.setStrokeWidth(1.5);
+                addOverlay(draftRegion);
+                event.consume();
+            });
+            setOnMouseDragged(event -> {
+                if (mode != ViewerMode.DRAW_REGION || dragStart == null || draftRegion == null) {
+                    return;
+                }
+                var x = Math.min(dragStart.x(), event.getX());
+                var y = Math.min(dragStart.y(), event.getY());
+                draftRegion.setX(x);
+                draftRegion.setY(y);
+                draftRegion.setWidth(Math.abs(event.getX() - dragStart.x()));
+                draftRegion.setHeight(Math.abs(event.getY() - dragStart.y()));
+                event.consume();
+            });
+            setOnMouseReleased(event -> {
+                if (mode != ViewerMode.DRAW_REGION || dragStart == null) {
+                    return;
+                }
+                var end = new ViewerPoint(event.getX(), event.getY());
+                var startImage = mapper.screenToImage(dragStart);
+                var endImage = mapper.screenToImage(end);
+                var x = Math.min(startImage.x(), endImage.x());
+                var y = Math.min(startImage.y(), endImage.y());
+                var width = Math.abs(endImage.x() - startImage.x());
+                var height = Math.abs(endImage.y() - startImage.y());
+                dragStart = null;
+                draftRegion = null;
+                if (width > 0 && height > 0) {
+                    applyDrawnRegion(new RegionDto(x, y, width, height));
+                }
+                event.consume();
+            });
             setOnMouseClicked(event -> {
+                if (mode == ViewerMode.DRAW_REGION) {
+                    event.consume();
+                    return;
+                }
                 var point = mapper.screenToImage(new ViewerPoint(event.getX(), event.getY()));
                 setUserData(point);
             });
@@ -1080,6 +1327,15 @@ public final class ConfiguratorApplication extends Application {
 
         void setMapper(ScaledCoordinateMapper mapper) {
             this.mapper = mapper;
+        }
+
+        void mode(ViewerMode mode) {
+            this.mode = mode;
+            setCursor(switch (mode) {
+                case PAN -> Cursor.MOVE;
+                case DRAW_REGION -> Cursor.CROSSHAIR;
+                case SELECT -> Cursor.DEFAULT;
+            });
         }
 
         void addOverlay(Rectangle rectangle) {
@@ -1119,5 +1375,28 @@ public final class ConfiguratorApplication extends Application {
         FIELD_TRANSFORMERS,
         FIELD_VALIDATORS,
         PIPELINE_STEP
+    }
+
+    private record RegionEditTarget(RegionTargetType type, int index) {
+    }
+
+    private enum RegionTargetType {
+        FIELD_REGION
+    }
+
+    private enum ViewerMode {
+        SELECT("Select"),
+        PAN("Pan"),
+        DRAW_REGION("Draw Region");
+
+        private final String label;
+
+        ViewerMode(String label) {
+            this.label = label;
+        }
+
+        String label() {
+            return label;
+        }
     }
 }
