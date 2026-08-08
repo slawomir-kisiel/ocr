@@ -8,6 +8,9 @@ import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.ZoomEvent;
 import javafx.scene.layout.BorderPane;
@@ -33,6 +36,7 @@ public final class ConfiguratorApplication extends Application {
     private final TreeView<String> configurationTree = new TreeView<>();
     private final ImageView pageImage = new ImageView();
     private final PaneOverlay viewer = new PaneOverlay(pageImage);
+    private final ScrollPane documentScroll = new ScrollPane(viewer);
     private final TextArea details = new TextArea();
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
@@ -54,7 +58,9 @@ public final class ConfiguratorApplication extends Application {
             services.backgroundExecutor()
         );
         stage.setTitle("OCR Configurator");
-        stage.setScene(new Scene(layout(stage), 1280, 820));
+        var scene = new Scene(layout(stage), 1280, 820);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveCategory(stage, false));
+        stage.setScene(scene);
         stage.show();
     }
 
@@ -88,7 +94,7 @@ public final class ConfiguratorApplication extends Application {
         var next = button("Next Page", () -> changePage(1));
         var zoomIn = button("Zoom In", () -> setZoom(zoom * 1.25));
         var zoomOut = button("Zoom Out", () -> setZoom(zoom / 1.25));
-        var fitPage = button("Fit Page", () -> setZoom(1.0));
+        var fitPage = button("Fit Page", this::fitPage);
         var runOcr = button("Run OCR", this::runOcr);
         var testCategory = button("Test Category", this::validate);
         var validate = button("Validate", this::validate);
@@ -105,7 +111,6 @@ public final class ConfiguratorApplication extends Application {
         var right = new VBox(8, new Label("Properties / Details"), details, new Label("Validation"), validationList);
         right.setPadding(new Insets(8));
         VBox.setVgrow(details, Priority.ALWAYS);
-        var documentScroll = new ScrollPane(viewer);
         documentScroll.setFitToWidth(false);
         documentScroll.setFitToHeight(false);
         documentScroll.setPannable(true);
@@ -210,11 +215,24 @@ public final class ConfiguratorApplication extends Application {
 
     private void setZoom(double value) {
         zoom = Math.max(0.2, Math.min(5.0, value));
-        pageImage.setScaleX(zoom);
-        pageImage.setScaleY(zoom);
+        applyImageSize();
         viewer.setMapper(new ScaledCoordinateMapper(zoom, 0, 0));
         renderOcrOverlay();
         refreshAll();
+    }
+
+    private void fitPage() {
+        var image = pageImage.getImage();
+        if (image == null || documentScroll.getViewportBounds().isEmpty()) {
+            setZoom(1.0);
+            return;
+        }
+        var horizontalPadding = viewer.padding().getLeft() + viewer.padding().getRight();
+        var verticalPadding = viewer.padding().getTop() + viewer.padding().getBottom();
+        var viewport = documentScroll.getViewportBounds();
+        var widthZoom = Math.max(0.2, (viewport.getWidth() - horizontalPadding) / image.getWidth());
+        var heightZoom = Math.max(0.2, (viewport.getHeight() - verticalPadding) / image.getHeight());
+        setZoom(Math.min(widthZoom, heightZoom));
     }
 
     private void handleScrollZoom(ScrollEvent event) {
@@ -235,8 +253,21 @@ public final class ConfiguratorApplication extends Application {
         var page = viewModel.session().pageCache().get(new PageNumber(viewModel.session().currentPage()));
         if (page != null) {
             pageImage.setImage(SwingFXUtils.toFXImage(page.asBufferedImage(), null));
+            Platform.runLater(this::fitPage);
         }
         renderOcrOverlay();
+    }
+
+    private void applyImageSize() {
+        var image = pageImage.getImage();
+        if (image == null) {
+            return;
+        }
+        var width = image.getWidth() * zoom;
+        var height = image.getHeight() * zoom;
+        pageImage.setFitWidth(width);
+        pageImage.setFitHeight(height);
+        viewer.setContentSize(width, height);
     }
 
     private void renderOcrOverlay() {
@@ -326,6 +357,16 @@ public final class ConfiguratorApplication extends Application {
                 var point = mapper.screenToImage(new ViewerPoint(event.getX(), event.getY()));
                 setUserData(point);
             });
+        }
+
+        Insets padding() {
+            return getPadding();
+        }
+
+        void setContentSize(double width, double height) {
+            var padding = getPadding();
+            setMinSize(width + padding.getLeft() + padding.getRight(), height + padding.getTop() + padding.getBottom());
+            setPrefSize(width + padding.getLeft() + padding.getRight(), height + padding.getTop() + padding.getBottom());
         }
 
         ScaledCoordinateMapper mapper() {

@@ -40,8 +40,18 @@ public final class ConfigurationSession {
     }
 
     public void draftCategory(CategoryDto draftCategory) {
+        replaceDraft(draftCategory);
+    }
+
+    public void replaceDraft(CategoryDto draftCategory) {
         this.draftCategory = draftCategory;
         this.dirty = true;
+        clearDownstreamCaches();
+    }
+
+    public void openDraft(CategoryDto draftCategory) {
+        this.draftCategory = draftCategory;
+        this.dirty = false;
         clearDownstreamCaches();
     }
 

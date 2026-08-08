@@ -16,9 +16,22 @@ class ConfigurationSessionTest {
         session.ocrCache().put(new PageNumber(1), new OcrText("old", List.of()));
         session.markSaved();
 
-        session.draftCategory(category("invoice"));
+        session.replaceDraft(category("invoice"));
 
         assertThat(session.dirty()).isTrue();
+        assertThat(session.ocrCache()).isEmpty();
+    }
+
+    @Test
+    void opensDraftWithoutDirtyStateAndInvalidatesDownstreamCaches() {
+        var session = new ConfigurationSession();
+        session.ocrCache().put(new PageNumber(1), new OcrText("old", List.of()));
+        session.replaceDraft(category("old"));
+
+        session.openDraft(category("invoice"));
+
+        assertThat(session.dirty()).isFalse();
+        assertThat(session.draftCategory().id()).isEqualTo("invoice");
         assertThat(session.ocrCache()).isEmpty();
     }
 
