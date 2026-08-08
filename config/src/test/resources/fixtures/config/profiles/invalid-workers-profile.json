@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0",
+  "id": "invalid-workers",
+  "version": "1.0",
+  "categories": {
+    "directory": "../categories",
+    "mode": "EXPLICIT",
+    "active": [
+      "invoice-a"
+    ]
+  },
+  "directories": {
+    "input": "./input",
+    "success": "./success",
+    "error": "./error"
+  },
+  "processing": {
+    "workers": 0
+  },
+  "output": {
+    "csv": {
+      "file": "./result.csv"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0",
+  "id": "invalid-region",
+  "version": "1.0",
+  "displayName": "Invalid region",
+  "pages": {
+    "type": "SINGLE",
+    "page": 1
+  },
+  "identification": {
+    "groups": [
+      {
+        "conditions": [
+          {
+            "type": "TEXT",
+            "page": 1,
+            "expectedText": "X",
+            "matcher": {
+              "id": "normalized"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "geometry": {
+    "referenceWidth": 100,
+    "referenceHeight": 100,
+    "strategy": {
+      "type": "NONE"
+    }
+  },
+  "anchors": [],
+  "fields": [
+    {
+      "id": "bad",
+      "displayName": "Bad",
+      "page": 1,
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 10
+      }
+    }
+  ]
+}

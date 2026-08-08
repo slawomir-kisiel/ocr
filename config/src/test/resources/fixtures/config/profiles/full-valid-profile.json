@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0",
+  "id": "production",
+  "version": "1.0",
+  "displayName": "Production OCR",
+  "description": "Full profile fixture",
+  "categories": {
+    "directory": "../categories",
+    "mode": "ALL"
+  },
+  "directories": {
+    "input": "./input",
+    "success": "./success",
+    "error": "./error"
+  },
+  "processing": {
+    "workers": 4,
+    "queueCapacity": 16
+  },
+  "ocr": {
+    "language": "pol",
+    "datapath": "/opt/tessdata"
+  },
+  "trace": {
+    "mode": "BASIC"
+  },
+  "output": {
+    "csv": {
+      "file": "./result.csv",
+      "charset": "UTF-8",
+      "delimiter": ";",
+      "quote": "\"",
+      "includeHeader": true,
+      "overwrite": false
+    }
+  }
+}
