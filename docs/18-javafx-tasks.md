@@ -846,6 +846,29 @@ Kryteria akceptacji:
 - ostatnio użyty plik trafia na początek odpowiedniej listy,
 - błędny wpis z historii daje czytelny komunikat i nie zmienia stanu aplikacji.
 
+### FX-120B Last File Chooser Directories
+
+Zapamiętać ostatnio wybrane foldery używane przez okna odczytu i zapisu plików.
+
+Zakres:
+
+- osobny ostatni folder dla odczytu konfiguracji kategorii,
+- osobny ostatni folder dla zapisu konfiguracji kategorii,
+- osobny ostatni folder dla odczytu dokumentu,
+- osobny ostatni folder dla zapisu/eksportu dokumentu lub artefaktów dokumentu, gdy taka akcja zostanie dodana,
+- inicjalizacja `FileChooser.initialDirectory` na podstawie zapamiętanego folderu,
+- aktualizacja zapamiętanego folderu po udanym wyborze pliku,
+- zapis folderów w `java.util.prefs.Preferences`,
+- ignorowanie zapamiętanego folderu, jeśli już nie istnieje lub nie jest katalogiem.
+
+Kryteria akceptacji:
+
+- `Open configuration` startuje w ostatnim folderze użytym do otwarcia konfiguracji,
+- `Save`/`Save As` konfiguracji startuje w ostatnim folderze użytym do zapisu konfiguracji,
+- `Open document` startuje w ostatnim folderze użytym do otwarcia dokumentu,
+- foldery konfiguracji i dokumentów nie nadpisują się nawzajem,
+- nieistniejący folder nie powoduje błędu UI i aplikacja używa domyślnej lokalizacji systemowej.
+
 ### FX-121 Keyboard Shortcuts
 
 Uzupełnić skróty klawiaturowe.
@@ -1033,8 +1056,9 @@ Rekomendowana kolejność prac:
 20. `FX-100 Diagnostic Export`
 21. `FX-120 Menu Bar`
 22. `FX-120A Recent Files Split Buttons`
-23. `FX-122 Unsaved Changes Guard`
-24. `FX-130 Packaging Configurator`
+23. `FX-120B Last File Chooser Directories`
+24. `FX-122 Unsaved Changes Guard`
+25. `FX-130 Packaging Configurator`
 
 ## 22. Kryteria Ukończenia Całości UI
 

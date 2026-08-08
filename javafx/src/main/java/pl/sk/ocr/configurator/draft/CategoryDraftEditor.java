@@ -30,9 +30,9 @@ public final class CategoryDraftEditor {
         requireDraft(draft);
         return replace(
             draft,
-            normalizeRequired(id, "category id", null),
-            normalizeRequired(version, "category version", null),
-            normalizeRequired(displayName, "display name", null),
+            normalizeText(id),
+            normalizeText(version),
+            normalizeText(displayName),
             description == null ? "" : description
         );
     }
@@ -307,6 +307,10 @@ public final class CategoryDraftEditor {
             throw new DraftMutationException("Missing " + name);
         }
         return value.trim();
+    }
+
+    private static String normalizeText(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static void requireUniqueId(List<? extends Object> elements, String id, String elementName) {

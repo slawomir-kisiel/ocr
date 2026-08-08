@@ -31,17 +31,44 @@ import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
 import pl.sk.ocr.domain.identifier.PageNumber;
 
 public final class ConfiguratorApplication extends Application {
+    private static final String PAGE_TYPE_SINGLE = "SINGLE";
+    private static final String PAGE_TYPE_RANGE = "RANGE";
+    private static final String PAGE_TYPE_LIST = "LIST";
+    private static final String PAGE_TYPE_ALL = "ALL";
+
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
     private final TreeView<String> configurationTree = new TreeView<>();
     private final ImageView pageImage = new ImageView();
     private final PaneOverlay viewer = new PaneOverlay(pageImage);
     private final ScrollPane documentScroll = new ScrollPane(viewer);
-    private final TextArea details = new TextArea();
+    private final VBox detailsPanel = new VBox(8);
+    private final TextField categoryId = new TextField();
+    private final TextField categoryDisplayName = new TextField();
+    private final TextArea categoryDescription = new TextArea();
+    private final TextField categoryVersion = new TextField();
+    private final ToggleGroup pageType = new ToggleGroup();
+    private final RadioButton pageTypeSingle = new RadioButton(PAGE_TYPE_SINGLE);
+    private final RadioButton pageTypeRange = new RadioButton(PAGE_TYPE_RANGE);
+    private final RadioButton pageTypeList = new RadioButton(PAGE_TYPE_LIST);
+    private final RadioButton pageTypeAll = new RadioButton(PAGE_TYPE_ALL);
+    private final HBox pageTypeControls = new HBox(8, pageTypeSingle, pageTypeRange, pageTypeList, pageTypeAll);
+    private final TextField pageNumber = new TextField();
+    private final TextField pageFrom = new TextField();
+    private final TextField pageTo = new TextField();
+    private final TextField pageList = new TextField();
+    private final VBox pageNumberField = new VBox();
+    private final VBox pageFromField = new VBox();
+    private final VBox pageToField = new VBox();
+    private final VBox pageListField = new VBox();
+    private final TextField ocrLanguage = new TextField();
+    private final TextField ocrDatapath = new TextField();
+    private final Label detailsInfo = new Label();
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
     private double zoom = 1.0;
+    private boolean refreshingDetails;
 
     public static void main(String[] args) {
         launch(args);
@@ -105,12 +132,11 @@ public final class ConfiguratorApplication extends Application {
     private SplitPane center() {
         configurationTree.setPrefWidth(280);
         configurationTree.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> refreshDetails());
-        details.setEditable(false);
-        details.setWrapText(true);
         validationList.setPrefHeight(180);
-        var right = new VBox(8, new Label("Properties / Details"), details, new Label("Validation"), validationList);
+        configureCategoryDetailsForm();
+        var right = new VBox(8, new Label("Properties / Details"), detailsPanel, new Label("Validation"), validationList);
         right.setPadding(new Insets(8));
-        VBox.setVgrow(details, Priority.ALWAYS);
+        VBox.setVgrow(detailsPanel, Priority.ALWAYS);
         documentScroll.setFitToWidth(false);
         documentScroll.setFitToHeight(false);
         documentScroll.setPannable(true);
@@ -283,8 +309,8 @@ public final class ConfiguratorApplication extends Application {
             rectangle.setStroke(Color.web("#1f7aec"));
             rectangle.setStrokeWidth(1.0);
             rectangle.setOnMouseClicked(event -> {
-                details.setText("OCR word\ntext=" + word.text() + "\nconfidence=" + word.confidence().value()
-                    + "\nbounds=" + word.boundingBox().region());
+                detailsInfo.setText("OCR word: " + word.text() + " | confidence=" + word.confidence().value()
+                    + " | bounds=" + word.boundingBox().region());
                 event.consume();
             });
             viewer.addOverlay(rectangle);
@@ -317,15 +343,253 @@ public final class ConfiguratorApplication extends Application {
 
     private void refreshDetails() {
         var draft = viewModel.draft();
+        refreshingDetails = true;
         if (draft == null) {
-            details.setText("Create or open a category configuration.");
+            detailsPanel.setDisable(true);
+            detailsInfo.setText("Create or open a category configuration.");
+            clearCategoryDetailsForm();
+            refreshingDetails = false;
             return;
         }
-        details.setText("id=" + draft.id()
-            + "\ndisplayName=" + draft.displayName()
-            + "\nversion=" + draft.version()
-            + "\ndirty=" + viewModel.session().dirty()
-            + "\nreferenceDocument=" + viewModel.session().referenceDocument());
+        detailsPanel.setDisable(false);
+        categoryId.setText(nullToEmpty(draft.id()));
+        categoryDisplayName.setText(nullToEmpty(draft.displayName()));
+        categoryDescription.setText(nullToEmpty(draft.description()));
+        categoryVersion.setText(nullToEmpty(draft.version()));
+        var pages = draft.pages();
+        selectPageType(pages == null || pages.type() == null ? PAGE_TYPE_SINGLE : pages.type());
+        pageNumber.setText(pages == null || pages.page() == null ? "" : pages.page().toString());
+        pageFrom.setText(pages == null || pages.from() == null ? "" : pages.from().toString());
+        pageTo.setText(pages == null || pages.to() == null ? "" : pages.to().toString());
+        pageList.setText(pages == null || pages.pages() == null ? "" : pages.pages().stream().map(String::valueOf).toList().toString().replace("[", "").replace("]", ""));
+        var ocr = draft.ocr();
+        ocrLanguage.setText(ocr == null ? "" : nullToEmpty(ocr.language()));
+        ocrDatapath.setText(ocr == null ? "" : nullToEmpty(ocr.datapath()));
+        detailsInfo.setText("Dirty=" + viewModel.session().dirty()
+            + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
+        refreshingDetails = false;
+    }
+
+    private void configureCategoryDetailsForm() {
+        pageTypeSingle.setToggleGroup(pageType);
+        pageTypeRange.setToggleGroup(pageType);
+        pageTypeList.setToggleGroup(pageType);
+        pageTypeAll.setToggleGroup(pageType);
+        pageTypeSingle.setUserData(PAGE_TYPE_SINGLE);
+        pageTypeRange.setUserData(PAGE_TYPE_RANGE);
+        pageTypeList.setUserData(PAGE_TYPE_LIST);
+        pageTypeAll.setUserData(PAGE_TYPE_ALL);
+        pageTypeSingle.setSelected(true);
+        categoryDescription.setPrefRowCount(3);
+        categoryDescription.setWrapText(true);
+        detailsInfo.setWrapText(true);
+        installTooltip(categoryId, "Unique category identifier written to category JSON.");
+        installTooltip(categoryDisplayName, "Human-readable category name shown in UI and diagnostics.");
+        installTooltip(categoryDescription, "Optional category description.");
+        installTooltip(categoryVersion, "Category configuration version.");
+        installTooltip(pageTypeSingle, "Use a single page.");
+        installTooltip(pageTypeRange, "Use a continuous page range.");
+        installTooltip(pageTypeList, "Use explicit comma-separated page numbers.");
+        installTooltip(pageTypeAll, "Use all pages.");
+        installTooltip(pageNumber, "Single page number for SINGLE page policy.");
+        installTooltip(pageFrom, "First page for RANGE page policy.");
+        installTooltip(pageTo, "Last page for RANGE page policy.");
+        installTooltip(pageList, "Comma-separated page numbers for LIST page policy.");
+        installTooltip(ocrLanguage, "Default OCR language for fields that do not override OCR settings.");
+        installTooltip(ocrDatapath, "Optional Tesseract datapath override.");
+
+        addDraftListener(categoryId, this::applyCategoryMetadata);
+        addDraftListener(categoryDisplayName, this::applyCategoryMetadata);
+        addDraftListener(categoryDescription, this::applyCategoryMetadata);
+        addDraftListener(categoryVersion, this::applyCategoryMetadata);
+        pageType.selectedToggleProperty().addListener((obs, old, value) -> {
+            updatePagePolicyFieldsVisibility();
+            applyPages();
+        });
+        addDraftListener(pageNumber, this::applyPages);
+        addDraftListener(pageFrom, this::applyPages);
+        addDraftListener(pageTo, this::applyPages);
+        addDraftListener(pageList, this::applyPages);
+        addDraftListener(ocrLanguage, this::applyOcrDefaults);
+        addDraftListener(ocrDatapath, this::applyOcrDefaults);
+
+        var categorySection = section("Category");
+        addFormRow(categorySection, "ID", categoryId);
+        addFormRow(categorySection, "Display Name", categoryDisplayName);
+        addFormRow(categorySection, "Description", categoryDescription);
+        addFormRow(categorySection, "Version", categoryVersion);
+
+        var pagePolicySection = section("Page Policy");
+        pagePolicySection.getChildren().add(pageTypeControls);
+        addFormRow(pagePolicySection, "Page", pageNumber, pageNumberField);
+        addFormRow(pagePolicySection, "From", pageFrom, pageFromField);
+        addFormRow(pagePolicySection, "To", pageTo, pageToField);
+        addFormRow(pagePolicySection, "Pages", pageList, pageListField);
+
+        var ocrSection = section("OCR");
+        addFormRow(ocrSection, "Language", ocrLanguage);
+        addFormRow(ocrSection, "Datapath", ocrDatapath);
+
+        var form = new VBox(10, categorySection, pagePolicySection, ocrSection);
+        detailsPanel.getChildren().setAll(form, detailsInfo);
+        updatePagePolicyFieldsVisibility();
+    }
+
+    private VBox section(String title) {
+        var label = new Label(title);
+        label.getStyleClass().add("details-section-title");
+        var content = new VBox(8);
+        content.setPadding(new Insets(8));
+        content.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
+        content.getChildren().add(label);
+        return content;
+    }
+
+    private void addFormRow(VBox form, String labelText, Control control) {
+        addFormRow(form, labelText, control, new VBox());
+    }
+
+    private void addFormRow(VBox form, String labelText, javafx.scene.Node control) {
+        addFormRow(form, labelText, control, new VBox());
+    }
+
+    private void addFormRow(VBox form, String labelText, javafx.scene.Node control, VBox field) {
+        var label = new Label(labelText);
+        if (control instanceof Control fxControl) {
+            label.setLabelFor(fxControl);
+            label.setTooltip(fxControl.getTooltip());
+            fxControl.setMaxWidth(Double.MAX_VALUE);
+        }
+        label.setMaxWidth(Double.MAX_VALUE);
+        field.setSpacing(2);
+        field.getChildren().setAll(label, control);
+        field.setMaxWidth(Double.MAX_VALUE);
+        form.getChildren().add(field);
+        VBox.setVgrow(control, Priority.NEVER);
+    }
+
+    private void updatePagePolicyFieldsVisibility() {
+        var selected = selectedPageType();
+        setVisibleManaged(pageNumberField, PAGE_TYPE_SINGLE.equals(selected));
+        setVisibleManaged(pageFromField, PAGE_TYPE_RANGE.equals(selected));
+        setVisibleManaged(pageToField, PAGE_TYPE_RANGE.equals(selected));
+        setVisibleManaged(pageListField, PAGE_TYPE_LIST.equals(selected));
+    }
+
+    private void setVisibleManaged(javafx.scene.Node node, boolean visible) {
+        node.setVisible(visible);
+        node.setManaged(visible);
+    }
+
+    private void installTooltip(Control control, String text) {
+        control.setTooltip(new Tooltip(text));
+    }
+
+    private void addDraftListener(TextInputControl control, Runnable action) {
+        control.textProperty().addListener((obs, old, value) -> action.run());
+    }
+
+    private void applyCategoryMetadata() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.updateCategoryMetadata(categoryId.getText(), categoryDisplayName.getText(),
+                categoryDescription.getText(), categoryVersion.getText());
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void applyPages() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.updatePages(new pl.sk.ocr.config.dto.PageSelectionDto(
+                selectedPageType(),
+                parseInteger(pageNumber.getText()),
+                parseInteger(pageFrom.getText()),
+                parseInteger(pageTo.getText()),
+                parseIntegerList(pageList.getText())
+            ));
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void applyOcrDefaults() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.updateOcr(new pl.sk.ocr.config.dto.OcrSettingsDto(blankToNull(ocrLanguage.getText()), blankToNull(ocrDatapath.getText())));
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void refreshAfterDraftEdit() {
+        refreshTree();
+        status.setText(viewModel.status());
+        validationList.getItems().setAll(viewModel.validationProblems().stream()
+            .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
+            .toList());
+        detailsInfo.setText("Dirty=" + viewModel.session().dirty()
+            + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
+    }
+
+    private void clearCategoryDetailsForm() {
+        categoryId.clear();
+        categoryDisplayName.clear();
+        categoryDescription.clear();
+        categoryVersion.clear();
+        selectPageType(PAGE_TYPE_SINGLE);
+        pageNumber.clear();
+        pageFrom.clear();
+        pageTo.clear();
+        pageList.clear();
+        ocrLanguage.clear();
+        ocrDatapath.clear();
+    }
+
+    private Integer parseInteger(String value) {
+        var text = blankToNull(value);
+        if (text == null) {
+            return null;
+        }
+        return Integer.parseInt(text);
+    }
+
+    private java.util.List<Integer> parseIntegerList(String value) {
+        var text = blankToNull(value);
+        if (text == null) {
+            return null;
+        }
+        return java.util.Arrays.stream(text.split(","))
+            .map(String::trim)
+            .filter(part -> !part.isEmpty())
+            .map(Integer::parseInt)
+            .toList();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String selectedPageType() {
+        var selected = pageType.getSelectedToggle();
+        return selected == null ? PAGE_TYPE_SINGLE : selected.getUserData().toString();
+    }
+
+    private void selectPageType(String type) {
+        switch (type) {
+            case PAGE_TYPE_RANGE -> pageType.selectToggle(pageTypeRange);
+            case PAGE_TYPE_LIST -> pageType.selectToggle(pageTypeList);
+            case PAGE_TYPE_ALL -> pageType.selectToggle(pageTypeAll);
+            default -> pageType.selectToggle(pageTypeSingle);
+        }
     }
 
     private void runUiSafe(Runnable runnable) {
