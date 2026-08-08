@@ -1,11 +1,15 @@
 package pl.sk.ocr.configurator;
 
+import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Pattern;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
@@ -20,6 +24,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
@@ -39,6 +44,8 @@ public final class ConfiguratorApplication extends Application {
     private static final String PAGE_TYPE_RANGE = "RANGE";
     private static final String PAGE_TYPE_LIST = "LIST";
     private static final String PAGE_TYPE_ALL = "ALL";
+    private static final double MIN_ZOOM = 0.2;
+    private static final double MAX_ZOOM = 5.0;
 
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
@@ -99,7 +106,7 @@ public final class ConfiguratorApplication extends Application {
         );
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveCategory(stage, false));
+        configureAccelerators(scene, stage);
         stage.setScene(scene);
         stage.show();
     }
@@ -132,14 +139,24 @@ public final class ConfiguratorApplication extends Application {
         var openDocument = button("Open Document", () -> chooseDocument(stage));
         var previous = button("Previous Page", () -> changePage(-1));
         var next = button("Next Page", () -> changePage(1));
-        var zoomIn = button("Zoom In", () -> setZoom(zoom * 1.25));
-        var zoomOut = button("Zoom Out", () -> setZoom(zoom / 1.25));
-        var fitPage = button("Fit Page", this::fitPage);
         var runOcr = button("Run OCR", this::runOcr);
         var testCategory = button("Test Category", this::validate);
         var validate = button("Validate", this::validate);
         return new ToolBar(newCategory, openConfig, save, saveAs, new Separator(), openDocument,
-            previous, next, zoomIn, zoomOut, fitPage, new Separator(), runOcr, testCategory, validate);
+            previous, next, new Separator(), runOcr, testCategory, validate);
+    }
+
+    private void configureAccelerators(Scene scene, Stage stage) {
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveCategory(stage, false));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.PLUS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ADD, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.MINUS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom / 1.25));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.SUBTRACT, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom / 1.25));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.CONTROL_DOWN), this::actualSize);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.NUMPAD0, KeyCombination.CONTROL_DOWN), this::actualSize);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN), this::fitPage);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.W, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), this::fitWidth);
     }
 
     private SplitPane center() {
@@ -161,9 +178,29 @@ public final class ConfiguratorApplication extends Application {
         documentScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         documentScroll.addEventFilter(ScrollEvent.SCROLL, this::handleScrollZoom);
         documentScroll.addEventFilter(ZoomEvent.ZOOM, this::handleTouchpadZoom);
-        var split = new SplitPane(configurationTree, documentScroll, right);
+        var split = new SplitPane(configurationTree, documentViewer(), right);
         split.setDividerPositions(0.22, 0.72);
         return split;
+    }
+
+    private HBox documentViewer() {
+        var zoomToolbar = new VBox(6,
+            iconButton("zoom-in.svg", "Zoom In (Ctrl++)", () -> setZoom(zoom * 1.25)),
+            iconButton("zoom-out.svg", "Zoom Out (Ctrl+-)", () -> setZoom(zoom / 1.25)),
+            iconButton("zoom-fit.svg", "Fit Page (Ctrl+F)", this::fitPage),
+            iconButton("zoom-width.svg", "Fit Width (Ctrl+Shift+W)", this::fitWidth),
+            iconButton("zoom-100.svg", "100% (Ctrl+0)", this::actualSize)
+        );
+        zoomToolbar.setPadding(new Insets(8));
+        zoomToolbar.setAlignment(Pos.TOP_CENTER);
+        zoomToolbar.setMinWidth(52);
+        zoomToolbar.setPrefWidth(52);
+        zoomToolbar.setMaxWidth(52);
+        zoomToolbar.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 0 1 0 0;");
+
+        var pane = new HBox(zoomToolbar, documentScroll);
+        HBox.setHgrow(documentScroll, Priority.ALWAYS);
+        return pane;
     }
 
     private HBox statusBar() {
@@ -176,6 +213,42 @@ public final class ConfiguratorApplication extends Application {
         var button = new Button(text);
         button.setOnAction(event -> action.run());
         return button;
+    }
+
+    private Button iconButton(String iconName, String tooltip, Runnable action) {
+        var button = button("", action);
+        button.setGraphic(svgIcon(iconName));
+        button.setTooltip(new Tooltip(tooltip));
+        button.setMinSize(36, 32);
+        button.setPrefSize(36, 32);
+        button.setMaxSize(36, 32);
+        return button;
+    }
+
+    private SVGPath svgIcon(String iconName) {
+        var path = new SVGPath();
+        path.setContent(svgPathContent(iconName));
+        path.setFill(Color.web("#2f3742"));
+        path.setScaleX(0.032);
+        path.setScaleY(0.032);
+        return path;
+    }
+
+    private String svgPathContent(String iconName) {
+        var resource = "/icons/" + iconName;
+        try (var input = ConfiguratorApplication.class.getResourceAsStream(resource)) {
+            if (input == null) {
+                throw new IllegalStateException("Missing icon resource: " + resource);
+            }
+            var svg = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            var matcher = Pattern.compile("<path\\s+[^>]*d=\"([^\"]+)\"").matcher(svg);
+            if (!matcher.find()) {
+                throw new IllegalStateException("Icon has no path data: " + resource);
+            }
+            return matcher.group(1);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot read icon resource: " + resource, e);
+        }
     }
 
     private void chooseCategory(Stage stage) {
@@ -257,7 +330,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void setZoom(double value) {
-        zoom = Math.max(0.2, Math.min(5.0, value));
+        zoom = boundedZoom(value);
         applyImageSize();
         viewer.setMapper(new ScaledCoordinateMapper(zoom, 0, 0));
         renderOcrOverlay();
@@ -273,9 +346,28 @@ public final class ConfiguratorApplication extends Application {
         var horizontalPadding = viewer.padding().getLeft() + viewer.padding().getRight();
         var verticalPadding = viewer.padding().getTop() + viewer.padding().getBottom();
         var viewport = documentScroll.getViewportBounds();
-        var widthZoom = Math.max(0.2, (viewport.getWidth() - horizontalPadding) / image.getWidth());
-        var heightZoom = Math.max(0.2, (viewport.getHeight() - verticalPadding) / image.getHeight());
+        var widthZoom = boundedZoom((viewport.getWidth() - horizontalPadding) / image.getWidth());
+        var heightZoom = boundedZoom((viewport.getHeight() - verticalPadding) / image.getHeight());
         setZoom(Math.min(widthZoom, heightZoom));
+    }
+
+    private void fitWidth() {
+        var image = pageImage.getImage();
+        if (image == null || documentScroll.getViewportBounds().isEmpty()) {
+            setZoom(1.0);
+            return;
+        }
+        var horizontalPadding = viewer.padding().getLeft() + viewer.padding().getRight();
+        var viewport = documentScroll.getViewportBounds();
+        setZoom((viewport.getWidth() - horizontalPadding) / image.getWidth());
+    }
+
+    private void actualSize() {
+        setZoom(1.0);
+    }
+
+    private double boundedZoom(double value) {
+        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
     }
 
     private void handleScrollZoom(ScrollEvent event) {
@@ -338,8 +430,7 @@ public final class ConfiguratorApplication extends Application {
         refreshTree();
         refreshDetails();
         status.setText(viewModel.status());
-        pageLabel.setText("Page " + viewModel.session().currentPage() + "/" + viewModel.session().pageCache().size()
-            + " | Zoom " + Math.round(zoom * 100) + "%");
+        refreshPageStatus();
         validationList.getItems().setAll(viewModel.validationProblems().stream()
             .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
             .toList());
@@ -857,9 +948,13 @@ public final class ConfiguratorApplication extends Application {
         if (page != viewModel.session().currentPage()) {
             viewModel.session().currentPage(page);
             renderPage();
-            pageLabel.setText("Page " + viewModel.session().currentPage() + "/" + viewModel.session().pageCache().size()
-                + " | Zoom " + Math.round(zoom * 100) + "%");
+            refreshPageStatus();
         }
+    }
+
+    private void refreshPageStatus() {
+        pageLabel.setText("Page " + viewModel.session().currentPage() + "/" + viewModel.session().pageCache().size()
+            + " | Zoom " + Math.round(zoom * 100) + "%");
     }
 
     private String labelOrDefault(String value, String fallback) {

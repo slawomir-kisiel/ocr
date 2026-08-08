@@ -217,7 +217,7 @@ Zakres:
 - `Zoom Out`,
 - kontrolki zoomu jako ikony w pionowym toolbarze w lewym górnym rogu panelu podglądu,
 - wspólny pionowy toolbar dla zoomu i trybów zaznaczania,
-- skróty klawiaturowe dla `Zoom In`, `Zoom Out`, `Fit Page`, `Fit Width` i `100%`,
+- skróty klawiaturowe dla `Zoom In` (+), `Zoom Out` (-), `Fit Page` (Ctrl+1), `Fit Width` (Ctrl+2) i `100%` (Ctrl+0),
 - zachowanie zoom center przy `Ctrl+scroll`,
 - stabilny status `Zoom N%`.
 
