@@ -45,6 +45,7 @@ import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
 import pl.sk.ocr.configurator.properties.CategoryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.FieldPropertiesPanel;
+import pl.sk.ocr.configurator.properties.FieldPropertiesPanel.Pipeline;
 import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection;
@@ -106,17 +107,18 @@ public final class ConfiguratorApplication extends Application {
         geometryPropertiesPanel = new GeometryPropertiesPanel(viewModel, this::anchors, this::fields, pageImage::getImage, status, detailsInfo, this::refreshAfterDraftEdit);
         anchorPropertiesPanel = new AnchorPropertiesPanel(viewModel, this::anchors, this::selectedAnchorIndex, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
-            this::activateAnchorSearchRegionDrawing, this::activateAnchorReferenceBoundsDrawing, this::svgIcon);
+            this::activateAnchorSearchRegionDrawing, this::activateAnchorReferenceBoundsDrawing, this::svgIcon,
+            services.extensionRegistry());
         identificationPropertiesPanel = new IdentificationPropertiesPanel(viewModel, this::identificationSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
-            this::activateConditionSearchRegionDrawing, this::svgIcon);
+            this::activateConditionSearchRegionDrawing, this::svgIcon, services.extensionRegistry());
         categoryPropertiesPanel = new CategoryPropertiesPanel(viewModel, detailsInfo, this::refreshAfterDraftEdit, () -> {
             refreshAfterDraftEdit();
             renderOcrOverlay();
         });
-        fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::selectedFieldIndex, detailsInfo,
+        fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::fieldSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
-            this::activateFieldRegionDrawing, this::svgIcon);
+            this::activateFieldRegionDrawing, this::svgIcon, services.extensionRegistry());
         propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         stage.setTitle("OCR Configurator");
@@ -1011,6 +1013,33 @@ public final class ConfiguratorApplication extends Application {
     private int selectedFieldIndex() {
         var selected = selectedTreeNode();
         return selected == null || selected.type() != TreeNodeType.FIELD ? -1 : selected.index();
+    }
+
+    private FieldPropertiesPanel.Selection fieldSelection() {
+        var selected = selectedTreeNode();
+        if (selected == null) {
+            return new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.FIELDS, -1, -1, null);
+        }
+        return switch (selected.type()) {
+            case FIELD -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.FIELD, selected.index(), -1, null);
+            case FIELD_OCR -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.FIELD_OCR, selected.index(), -1, null);
+            case FIELD_OUTPUT -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.FIELD_OUTPUT, selected.index(), -1, null);
+            case FIELD_IMAGE_PROCESSORS -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.IMAGE_PROCESSORS, selected.index(), -1, Pipeline.IMAGE_PROCESSORS);
+            case FIELD_TRANSFORMERS -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.TRANSFORMERS, selected.index(), -1, Pipeline.TRANSFORMERS);
+            case FIELD_VALIDATORS -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.VALIDATORS, selected.index(), -1, Pipeline.VALIDATORS);
+            case PIPELINE_STEP -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.PIPELINE_STEP, selected.index(), selected.childIndex(), pipelineFromNodeId(selected.id()));
+            default -> new FieldPropertiesPanel.Selection(FieldPropertiesPanel.SelectionType.FIELDS, -1, -1, null);
+        };
+    }
+
+    private Pipeline pipelineFromNodeId(String id) {
+        if (id != null && id.contains(".imageProcessors.")) {
+            return Pipeline.IMAGE_PROCESSORS;
+        }
+        if (id != null && id.contains(".validators.")) {
+            return Pipeline.VALIDATORS;
+        }
+        return Pipeline.TRANSFORMERS;
     }
 
     private pl.sk.ocr.config.dto.FieldDto field(int index) {

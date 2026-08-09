@@ -21,6 +21,8 @@ import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
+import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionType;
 
 public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final CategoryEditorViewModel viewModel;
@@ -31,6 +33,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final Consumer<String> pendingSelection;
     private final Runnable activateConditionSearchRegionDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionPicker extensionPicker;
     private final Label groupsCount = new Label();
     private final Button addGroup = new Button("Add Group");
     private final Button removeLastGroup = new Button("Remove Last Group");
@@ -39,6 +42,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final TextField conditionExpectedText = new TextField();
     private final TextField conditionMatcherId = new TextField();
     private final TextField conditionDetectorId = new TextField();
+    private final Button pickMatcher = new Button("...");
+    private final Button pickDetector = new Button("...");
     private final Spinner<Integer> searchRegionX = regionSpinner();
     private final Spinner<Integer> searchRegionY = regionSpinner();
     private final Spinner<Integer> searchRegionWidth = regionSpinner();
@@ -50,7 +55,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
                                          Label detailsInfo, Runnable afterChange, Runnable refreshAll,
                                          Consumer<String> pendingSelection,
                                          Runnable activateConditionSearchRegionDrawing,
-                                         Function<String, Node> iconFactory) {
+                                         Function<String, Node> iconFactory,
+                                         ExtensionRegistry extensionRegistry) {
         this.viewModel = viewModel;
         this.selection = selection;
         this.detailsInfo = detailsInfo;
@@ -59,6 +65,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         this.pendingSelection = pendingSelection;
         this.activateConditionSearchRegionDrawing = activateConditionSearchRegionDrawing;
         this.iconFactory = iconFactory;
+        this.extensionPicker = new ExtensionPicker(extensionRegistry);
         configure();
     }
 
@@ -154,6 +161,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         installTooltip(conditionExpectedText, "Text expected by TEXT condition.");
         installTooltip(conditionMatcherId, "Matcher extension id used by this condition.");
         installTooltip(conditionDetectorId, "Detector extension id used by this condition.");
+        installTooltip(pickMatcher, "Choose matcher extension from registry.");
+        installTooltip(pickDetector, "Choose detector extension from registry.");
         installTooltip(searchRegionX, "Condition search region X coordinate.");
         installTooltip(searchRegionY, "Condition search region Y coordinate.");
         installTooltip(searchRegionWidth, "Condition search region width.");
@@ -182,6 +191,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addDraftListener(conditionExpectedText, this::applySelectedCondition);
         addDraftListener(conditionMatcherId, this::applySelectedCondition);
         addDraftListener(conditionDetectorId, this::applySelectedCondition);
+        pickMatcher.setOnAction(event -> chooseExtension(ExtensionType.MATCHER, conditionMatcherId));
+        pickDetector.setOnAction(event -> chooseExtension(ExtensionType.DETECTOR, conditionDetectorId));
         addSpinnerListener(searchRegionX, this::applySelectedCondition);
         addSpinnerListener(searchRegionY, this::applySelectedCondition);
         addSpinnerListener(searchRegionWidth, this::applySelectedCondition);
@@ -232,8 +243,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addFormRow(identificationContent, "Type", conditionType);
         addFormRow(identificationContent, "Page", conditionPage);
         addFormRow(identificationContent, "Expected Text", conditionExpectedText);
-        addFormRow(identificationContent, "Matcher ID", conditionMatcherId);
-        addFormRow(identificationContent, "Detector ID", conditionDetectorId);
+        addFormRow(identificationContent, "Matcher ID", extensionInput(conditionMatcherId, pickMatcher));
+        addFormRow(identificationContent, "Detector ID", extensionInput(conditionDetectorId, pickDetector));
         section.getChildren().add(titledPane("Identification", identificationContent));
 
         var searchRegionContent = new VBox(8);
@@ -279,6 +290,24 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         var button = new Button(text);
         button.setOnAction(event -> action.run());
         return button;
+    }
+
+    private HBox extensionInput(TextField field, Button picker) {
+        detachFromParent(field);
+        detachFromParent(picker);
+        field.setMaxWidth(Double.MAX_VALUE);
+        picker.setMinWidth(34);
+        picker.setMaxWidth(34);
+        var box = new HBox(6, field, picker);
+        HBox.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
+        return box;
+    }
+
+    private void chooseExtension(ExtensionType type, TextField target) {
+        extensionPicker.chooseId(type, target.getText()).ifPresent(id -> {
+            target.setText(id);
+            applySelectedCondition();
+        });
     }
 
     private void applySelectedCondition() {

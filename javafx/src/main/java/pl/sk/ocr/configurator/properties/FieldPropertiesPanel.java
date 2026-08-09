@@ -5,7 +5,6 @@ import static pl.sk.ocr.configurator.ui.FormControls.*;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -16,21 +15,25 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.FieldDto;
 import pl.sk.ocr.config.dto.OutputDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
+import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionType;
 
 public final class FieldPropertiesPanel implements DetailsPanel {
     private final CategoryEditorViewModel viewModel;
     private final Supplier<List<FieldDto>> fields;
-    private final IntSupplier selectedFieldIndex;
+    private final Supplier<Selection> selection;
     private final Label detailsInfo;
     private final Runnable afterChange;
     private final Runnable refreshAll;
     private final Consumer<String> pendingSelection;
     private final Runnable activateRegionDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionPicker extensionPicker;
     private final Label fieldsCount = new Label();
     private final Button addField = new Button("Add Field");
     private final TextField fieldId = new TextField();
@@ -47,27 +50,31 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private boolean refreshing;
 
     public FieldPropertiesPanel(CategoryEditorViewModel viewModel, Supplier<List<FieldDto>> fields,
-                                IntSupplier selectedFieldIndex, Label detailsInfo, Runnable afterChange,
+                                Supplier<Selection> selection, Label detailsInfo, Runnable afterChange,
                                 Runnable refreshAll, Consumer<String> pendingSelection,
-                                Runnable activateRegionDrawing, Function<String, Node> iconFactory) {
+                                Runnable activateRegionDrawing, Function<String, Node> iconFactory,
+                                ExtensionRegistry extensionRegistry) {
         this.viewModel = viewModel;
         this.fields = fields;
-        this.selectedFieldIndex = selectedFieldIndex;
+        this.selection = selection;
         this.detailsInfo = detailsInfo;
         this.afterChange = afterChange;
         this.refreshAll = refreshAll;
         this.pendingSelection = pendingSelection;
         this.activateRegionDrawing = activateRegionDrawing;
         this.iconFactory = iconFactory;
+        this.extensionPicker = new ExtensionPicker(extensionRegistry);
         configure();
     }
 
     @Override
     public Node view() {
         var section = section("Fields");
-        var index = selectedFieldIndex.getAsInt();
-        if (selectedField() != null) {
-            fieldControls(section, index);
+        var selected = selection.get();
+        if (selected.type() == SelectionType.FIELD && selectedField() != null) {
+            fieldControls(section, selected.fieldIndex());
+        } else if (selected.type().isPipeline()) {
+            pipelineControls(section, selected);
         } else {
             addFormRow(section, "Fields", fieldsCount);
             detachFromParent(addField);
@@ -187,8 +194,35 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         return button;
     }
 
+    private void pipelineControls(VBox section, Selection selected) {
+        var field = field(selected.fieldIndex());
+        if (field == null) {
+            addFormRow(section, "Fields", fieldsCount);
+            return;
+        }
+        var pipeline = selected.type() == SelectionType.PIPELINE_STEP ? selected.pipeline() : Pipeline.from(selected.type());
+        var steps = pipeline.steps(field);
+        addFormRow(section, pipeline.title(), new Label(String.valueOf(steps.size())));
+        for (int i = 0; i < steps.size(); i++) {
+            var stepIndex = i;
+            var step = steps.get(i);
+            var selectedStep = selected.type() == SelectionType.PIPELINE_STEP && selected.stepIndex() == stepIndex;
+            var label = new Label(step == null ? "" : nullToEmpty(step.id()));
+            var choose = button("Choose", () -> choosePipelineStep(pipeline, selected.fieldIndex(), stepIndex, step == null ? null : step.id()));
+            var moveUp = button("Move Up", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
+            var moveDown = button("Move Down", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
+            var remove = button("Remove", () -> removePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
+            moveUp.setDisable(stepIndex <= 0);
+            moveDown.setDisable(stepIndex >= steps.size() - 1);
+            var row = new HBox(8, label, choose, moveUp, moveDown, remove);
+            row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
+            section.getChildren().add(row);
+        }
+        section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
+    }
+
     private FieldDto selectedField() {
-        var index = selectedFieldIndex.getAsInt();
+        var index = selection.get().fieldIndex();
         var fieldList = fields.get();
         if (index < 0 || index >= fieldList.size()) {
             return null;
@@ -237,11 +271,60 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         refreshAll.run();
     }
 
+    private void addPipelineStep(Pipeline pipeline, int fieldIndex) {
+        extensionPicker.chooseRef(pipeline.extensionType(), null).ifPresent(ref -> {
+            pipeline.add(viewModel, fieldIndex, ref);
+            pendingSelection.accept(pipeline.nodeId(fieldIndex, pipeline.steps(field(fieldIndex)).size() - 1));
+            refreshAll.run();
+        });
+    }
+
+    private void choosePipelineStep(Pipeline pipeline, int fieldIndex, int stepIndex, String currentId) {
+        extensionPicker.chooseRef(pipeline.extensionType(), currentId).ifPresent(ref -> {
+            var field = field(fieldIndex);
+            if (field == null) {
+                return;
+            }
+            var updated = new java.util.ArrayList<>(pipeline.steps(field));
+            updated.set(stepIndex, ref);
+            replacePipeline(fieldIndex, field, pipeline, updated);
+            pendingSelection.accept(pipeline.nodeId(fieldIndex, stepIndex));
+            refreshAll.run();
+        });
+    }
+
+    private void movePipelineStep(Pipeline pipeline, int fieldIndex, int fromIndex, int toIndex) {
+        var field = field(fieldIndex);
+        if (field == null || toIndex < 0 || toIndex >= pipeline.steps(field).size()) {
+            return;
+        }
+        pipeline.move(viewModel, fieldIndex, fromIndex, toIndex);
+        pendingSelection.accept(pipeline.nodeId(fieldIndex, toIndex));
+        refreshAll.run();
+    }
+
+    private void removePipelineStep(Pipeline pipeline, int fieldIndex, int stepIndex) {
+        pipeline.remove(viewModel, fieldIndex, stepIndex);
+        pendingSelection.accept(pipeline.parentId(fieldIndex));
+        refreshAll.run();
+    }
+
+    private void replacePipeline(int fieldIndex, FieldDto field, Pipeline pipeline, List<ExtensionRefDto> steps) {
+        viewModel.replaceField(fieldIndex, switch (pipeline) {
+            case IMAGE_PROCESSORS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
+                field.ocr(), field.output(), steps, list(field.transformers()), list(field.validators()));
+            case TRANSFORMERS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
+                field.ocr(), field.output(), list(field.imageProcessors()), steps, list(field.validators()));
+            case VALIDATORS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
+                field.ocr(), field.output(), list(field.imageProcessors()), list(field.transformers()), steps);
+        });
+    }
+
     private void applySelectedField() {
         if (refreshing || viewModel.draft() == null || selectedField() == null) {
             return;
         }
-        var index = selectedFieldIndex.getAsInt();
+        var index = selection.get().fieldIndex();
         var current = selectedField();
         viewModel.replaceField(index, new FieldDto(blankToNull(fieldId.getText()), blankToNull(fieldDisplayName.getText()),
             parseInteger(fieldPage.getText()), fieldRegion(), fieldRequired.isSelected(), current.ocr(), output(),
@@ -335,5 +418,105 @@ public final class FieldPropertiesPanel implements DetailsPanel {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public enum SelectionType {
+        FIELDS,
+        FIELD,
+        FIELD_OCR,
+        FIELD_OUTPUT,
+        IMAGE_PROCESSORS,
+        TRANSFORMERS,
+        VALIDATORS,
+        PIPELINE_STEP;
+
+        boolean isPipeline() {
+            return this == IMAGE_PROCESSORS || this == TRANSFORMERS || this == VALIDATORS || this == PIPELINE_STEP;
+        }
+    }
+
+    public record Selection(SelectionType type, int fieldIndex, int stepIndex, Pipeline pipeline) {
+    }
+
+    public enum Pipeline {
+        IMAGE_PROCESSORS("Image Processors", "Image Processor", ExtensionType.IMAGE_PROCESSOR),
+        TRANSFORMERS("Transformers", "Transformer", ExtensionType.VALUE_TRANSFORMER),
+        VALIDATORS("Validators", "Validator", ExtensionType.VALIDATOR);
+
+        private final String title;
+        private final String singular;
+        private final ExtensionType extensionType;
+
+        Pipeline(String title, String singular, ExtensionType extensionType) {
+            this.title = title;
+            this.singular = singular;
+            this.extensionType = extensionType;
+        }
+
+        static Pipeline from(SelectionType type) {
+            return switch (type) {
+                case IMAGE_PROCESSORS -> IMAGE_PROCESSORS;
+                case TRANSFORMERS -> TRANSFORMERS;
+                case VALIDATORS -> VALIDATORS;
+                case PIPELINE_STEP -> throw new IllegalStateException("Pipeline step requires explicit pipeline");
+                default -> throw new IllegalArgumentException("Unsupported pipeline selection: " + type);
+            };
+        }
+
+        List<ExtensionRefDto> steps(FieldDto field) {
+            return switch (this) {
+                case IMAGE_PROCESSORS -> field.imageProcessors() == null ? List.of() : field.imageProcessors();
+                case TRANSFORMERS -> field.transformers() == null ? List.of() : field.transformers();
+                case VALIDATORS -> field.validators() == null ? List.of() : field.validators();
+            };
+        }
+
+        void add(CategoryEditorViewModel viewModel, int fieldIndex, ExtensionRefDto ref) {
+            switch (this) {
+                case IMAGE_PROCESSORS -> viewModel.addImageProcessor(fieldIndex, ref);
+                case TRANSFORMERS -> viewModel.addTransformer(fieldIndex, ref);
+                case VALIDATORS -> viewModel.addValidator(fieldIndex, ref);
+            }
+        }
+
+        void move(CategoryEditorViewModel viewModel, int fieldIndex, int fromIndex, int toIndex) {
+            switch (this) {
+                case IMAGE_PROCESSORS -> viewModel.moveImageProcessor(fieldIndex, fromIndex, toIndex);
+                case TRANSFORMERS -> viewModel.moveTransformer(fieldIndex, fromIndex, toIndex);
+                case VALIDATORS -> viewModel.moveValidator(fieldIndex, fromIndex, toIndex);
+            }
+        }
+
+        void remove(CategoryEditorViewModel viewModel, int fieldIndex, int stepIndex) {
+            switch (this) {
+                case IMAGE_PROCESSORS -> viewModel.removeImageProcessor(fieldIndex, stepIndex);
+                case TRANSFORMERS -> viewModel.removeTransformer(fieldIndex, stepIndex);
+                case VALIDATORS -> viewModel.removeValidator(fieldIndex, stepIndex);
+            }
+        }
+
+        String title() {
+            return title;
+        }
+
+        String singular() {
+            return singular;
+        }
+
+        ExtensionType extensionType() {
+            return extensionType;
+        }
+
+        String parentId(int fieldIndex) {
+            return switch (this) {
+                case IMAGE_PROCESSORS -> "field." + fieldIndex + ".imageProcessors";
+                case TRANSFORMERS -> "field." + fieldIndex + ".transformers";
+                case VALIDATORS -> "field." + fieldIndex + ".validators";
+            };
+        }
+
+        String nodeId(int fieldIndex, int stepIndex) {
+            return parentId(fieldIndex) + "." + stepIndex;
+        }
     }
 }

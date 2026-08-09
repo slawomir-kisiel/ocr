@@ -22,6 +22,8 @@ import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.ReferenceFeatureDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
+import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionType;
 
 public final class AnchorPropertiesPanel implements DetailsPanel {
     private final CategoryEditorViewModel viewModel;
@@ -34,11 +36,13 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final Runnable activateSearchRegionDrawing;
     private final Runnable activateReferenceBoundsDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionPicker extensionPicker;
     private final Label anchorsCount = new Label();
     private final Button addAnchor = new Button("Add Anchor");
     private final TextField anchorId = new TextField();
     private final TextField anchorPage = new TextField();
     private final TextField anchorDetectorId = new TextField();
+    private final Button pickDetector = new Button("...");
     private final CheckBox anchorRequired = new CheckBox();
     private final Spinner<Integer> searchRegionX = regionSpinner();
     private final Spinner<Integer> searchRegionY = regionSpinner();
@@ -56,7 +60,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
                                  IntSupplier selectedIndex, Label detailsInfo, Runnable afterChange,
                                  Runnable refreshAll, Consumer<String> pendingSelection,
                                  Runnable activateSearchRegionDrawing, Runnable activateReferenceBoundsDrawing,
-                                 Function<String, Node> iconFactory) {
+                                 Function<String, Node> iconFactory, ExtensionRegistry extensionRegistry) {
         this.viewModel = viewModel;
         this.anchors = anchors;
         this.selectedIndex = selectedIndex;
@@ -67,6 +71,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         this.activateSearchRegionDrawing = activateSearchRegionDrawing;
         this.activateReferenceBoundsDrawing = activateReferenceBoundsDrawing;
         this.iconFactory = iconFactory;
+        this.extensionPicker = new ExtensionPicker(extensionRegistry);
         configure();
     }
 
@@ -150,6 +155,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         installTooltip(anchorId, "Anchor id used by geometry strategy references.");
         installTooltip(anchorPage, "Page where this anchor should be detected.");
         installTooltip(anchorDetectorId, "Detector extension id used by this anchor.");
+        installTooltip(pickDetector, "Choose detector extension from registry.");
         installTooltip(anchorRequired, "Whether missing anchor should fail geometry detection.");
         installTooltip(searchRegionX, "Anchor search region X coordinate.");
         installTooltip(searchRegionY, "Anchor search region Y coordinate.");
@@ -165,6 +171,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addDraftListener(anchorId, this::applySelectedAnchor);
         addDraftListener(anchorPage, this::applySelectedAnchor);
         addDraftListener(anchorDetectorId, this::applySelectedAnchor);
+        pickDetector.setOnAction(event -> chooseDetector());
         anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
         addSpinnerListener(searchRegionX, this::applySelectedAnchor);
         addSpinnerListener(searchRegionY, this::applySelectedAnchor);
@@ -190,7 +197,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var anchorContent = new VBox(8);
         addFormRow(anchorContent, "ID", anchorId);
         addFormRow(anchorContent, "Page", anchorPage);
-        addFormRow(anchorContent, "Detector ID", anchorDetectorId);
+        addFormRow(anchorContent, "Detector ID", extensionInput(anchorDetectorId, pickDetector));
         addFormRow(anchorContent, "Required", anchorRequired);
         section.getChildren().add(titledPane("Anchor", anchorContent));
 
@@ -241,6 +248,24 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var button = new Button(text);
         button.setOnAction(event -> action.run());
         return button;
+    }
+
+    private HBox extensionInput(TextField field, Button picker) {
+        detachFromParent(field);
+        detachFromParent(picker);
+        field.setMaxWidth(Double.MAX_VALUE);
+        picker.setMinWidth(34);
+        picker.setMaxWidth(34);
+        var box = new HBox(6, field, picker);
+        HBox.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
+        return box;
+    }
+
+    private void chooseDetector() {
+        extensionPicker.chooseId(ExtensionType.DETECTOR, anchorDetectorId.getText()).ifPresent(id -> {
+            anchorDetectorId.setText(id);
+            applySelectedAnchor();
+        });
     }
 
     private void addAnchor() {
