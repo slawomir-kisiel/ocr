@@ -45,6 +45,8 @@ import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
+import pl.sk.ocr.configurator.properties.CategoryPropertiesPanel;
+import pl.sk.ocr.configurator.properties.FieldPropertiesPanel;
 import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection;
@@ -55,10 +57,6 @@ import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
 import pl.sk.ocr.domain.identifier.PageNumber;
 
 public final class ConfiguratorApplication extends Application {
-    private static final String PAGE_TYPE_SINGLE = "SINGLE";
-    private static final String PAGE_TYPE_RANGE = "RANGE";
-    private static final String PAGE_TYPE_LIST = "LIST";
-    private static final String PAGE_TYPE_ALL = "ALL";
     private static final double MIN_ZOOM = 0.2;
     private static final double MAX_ZOOM = 5.0;
 
@@ -70,33 +68,7 @@ public final class ConfiguratorApplication extends Application {
     private final ScrollPane documentScroll = new ScrollPane(viewer);
     private final VBox detailsPanel = new VBox(8);
     private final ScrollPane detailsScroll = new ScrollPane(detailsPanel);
-    private final TextField categoryId = new TextField();
-    private final TextField categoryDisplayName = new TextField();
-    private final TextArea categoryDescription = new TextArea();
-    private final TextField categoryVersion = new TextField();
-    private final ToggleGroup pageType = new ToggleGroup();
-    private final RadioButton pageTypeSingle = new RadioButton(PAGE_TYPE_SINGLE);
-    private final RadioButton pageTypeRange = new RadioButton(PAGE_TYPE_RANGE);
-    private final RadioButton pageTypeList = new RadioButton(PAGE_TYPE_LIST);
-    private final RadioButton pageTypeAll = new RadioButton(PAGE_TYPE_ALL);
-    private final HBox pageTypeControls = new HBox(8, pageTypeSingle, pageTypeRange, pageTypeList, pageTypeAll);
-    private final TextField pageNumber = new TextField();
-    private final TextField pageFrom = new TextField();
-    private final TextField pageTo = new TextField();
-    private final TextField pageList = new TextField();
-    private final VBox pageNumberField = new VBox();
-    private final VBox pageFromField = new VBox();
-    private final VBox pageToField = new VBox();
-    private final VBox pageListField = new VBox();
-    private final TextField ocrLanguage = new TextField();
-    private final TextField ocrDatapath = new TextField();
     private final Label detailsInfo = new Label();
-    private final Label fieldsCount = new Label();
-    private final TextField fieldRegionX = new TextField();
-    private final TextField fieldRegionY = new TextField();
-    private final TextField fieldRegionWidth = new TextField();
-    private final TextField fieldRegionHeight = new TextField();
-    private final Button drawFieldRegion = new Button();
     private final ListView<String> validationList = new ListView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
@@ -115,6 +87,9 @@ public final class ConfiguratorApplication extends Application {
     private GeometryPropertiesPanel geometryPropertiesPanel;
     private AnchorPropertiesPanel anchorPropertiesPanel;
     private IdentificationPropertiesPanel identificationPropertiesPanel;
+    private CategoryPropertiesPanel categoryPropertiesPanel;
+    private FieldPropertiesPanel fieldPropertiesPanel;
+    private PropertiesPanel propertiesPanel;
 
     public static void main(String[] args) {
         launch(args);
@@ -137,6 +112,14 @@ public final class ConfiguratorApplication extends Application {
         identificationPropertiesPanel = new IdentificationPropertiesPanel(viewModel, this::identificationSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
             this::activateConditionSearchRegionDrawing, this::svgIcon);
+        categoryPropertiesPanel = new CategoryPropertiesPanel(viewModel, detailsInfo, this::refreshAfterDraftEdit, () -> {
+            refreshAfterDraftEdit();
+            renderOcrOverlay();
+        });
+        fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::selectedFieldIndex, detailsInfo,
+            this::refreshAfterDraftEdit, this::activateFieldRegionDrawing, () -> svgIcon("mode-draw-region.svg"));
+        propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
+            anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -207,7 +190,6 @@ public final class ConfiguratorApplication extends Application {
         });
         validationList.setPrefHeight(180);
         configureCategoryDetailsForm();
-        configureOtherDetailsForms();
         detailsScroll.setFitToWidth(true);
         detailsScroll.setFitToHeight(false);
         detailsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -379,19 +361,7 @@ public final class ConfiguratorApplication extends Application {
         if (refreshingDetails || viewModel.draft() == null) {
             return;
         }
-        switch (selectedNodeType()) {
-            case ROOT -> {
-                applyCategoryMetadata();
-                applyPages();
-                applyOcrDefaults();
-            }
-            case CONDITION -> applySelectedCondition();
-            case ANCHOR -> applySelectedAnchor();
-            case GEOMETRY, GEOMETRY_STRATEGY -> applyGeometry();
-            case FIELD -> applySelectedFieldRegion();
-            default -> {
-            }
-        }
+        propertiesPanel.commitActive();
     }
 
     private void chooseDocument(Stage stage) {
@@ -777,172 +747,21 @@ public final class ConfiguratorApplication extends Application {
         var draft = viewModel.draft();
         refreshingDetails = true;
         if (draft == null) {
-            detailsPanel.setDisable(true);
             detailsInfo.setText("Create or open a category configuration.");
-            clearCategoryDetailsForm();
-            detailsPanel.getChildren().setAll(emptyDetailsForm());
+            propertiesPanel.showEmpty();
             refreshingDetails = false;
             return;
         }
-        detailsPanel.setDisable(false);
-        categoryId.setText(nullToEmpty(draft.id()));
-        categoryDisplayName.setText(nullToEmpty(draft.displayName()));
-        categoryDescription.setText(nullToEmpty(draft.description()));
-        categoryVersion.setText(nullToEmpty(draft.version()));
-        var pages = draft.pages();
-        selectPageType(pages == null || pages.type() == null ? PAGE_TYPE_SINGLE : pages.type());
-        pageNumber.setText(pages == null || pages.page() == null ? "" : pages.page().toString());
-        pageFrom.setText(pages == null || pages.from() == null ? "" : pages.from().toString());
-        pageTo.setText(pages == null || pages.to() == null ? "" : pages.to().toString());
-        pageList.setText(pages == null || pages.pages() == null ? "" : pages.pages().stream().map(String::valueOf).toList().toString().replace("[", "").replace("]", ""));
-        var ocr = draft.ocr();
-        ocrLanguage.setText(ocr == null ? "" : nullToEmpty(ocr.language()));
-        ocrDatapath.setText(ocr == null ? "" : nullToEmpty(ocr.datapath()));
-        identificationPropertiesPanel.refresh();
-        anchorPropertiesPanel.refresh();
-        fieldsCount.setText(String.valueOf(draft.fields() == null ? 0 : draft.fields().size()));
-        geometryPropertiesPanel.refresh();
-        var selectedField = selectedField();
-        var selectedRegion = selectedField == null ? null : selectedField.region();
-        fieldRegionX.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.x()));
-        fieldRegionY.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.y()));
-        fieldRegionWidth.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.width()));
-        fieldRegionHeight.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.height()));
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
-        detailsPanel.getChildren().setAll(detailsFormForSelection());
+        propertiesPanel.refreshActive();
         renderOcrOverlay();
         refreshingDetails = false;
     }
 
     private void configureCategoryDetailsForm() {
-        pageTypeSingle.setToggleGroup(pageType);
-        pageTypeRange.setToggleGroup(pageType);
-        pageTypeList.setToggleGroup(pageType);
-        pageTypeAll.setToggleGroup(pageType);
-        pageTypeSingle.setUserData(PAGE_TYPE_SINGLE);
-        pageTypeRange.setUserData(PAGE_TYPE_RANGE);
-        pageTypeList.setUserData(PAGE_TYPE_LIST);
-        pageTypeAll.setUserData(PAGE_TYPE_ALL);
-        pageTypeSingle.setStyle("-fx-text-fill: #111827;");
-        pageTypeRange.setStyle("-fx-text-fill: #111827;");
-        pageTypeList.setStyle("-fx-text-fill: #111827;");
-        pageTypeAll.setStyle("-fx-text-fill: #111827;");
-        pageTypeSingle.setSelected(true);
-        categoryDescription.setPrefRowCount(3);
-        categoryDescription.setWrapText(true);
         detailsInfo.setWrapText(true);
         detailsInfo.setStyle("-fx-text-fill: #111827;");
-        fieldsCount.setStyle("-fx-text-fill: #111827;");
-        installTooltip(categoryId, "Unique category identifier written to category JSON.");
-        installTooltip(categoryDisplayName, "Human-readable category name shown in UI and diagnostics.");
-        installTooltip(categoryDescription, "Optional category description.");
-        installTooltip(categoryVersion, "Category configuration version.");
-        installTooltip(pageTypeSingle, "Use a single page.");
-        installTooltip(pageTypeRange, "Use a continuous page range.");
-        installTooltip(pageTypeList, "Use explicit comma-separated page numbers.");
-        installTooltip(pageTypeAll, "Use all pages.");
-        installTooltip(pageNumber, "Single page number for SINGLE page policy.");
-        installTooltip(pageFrom, "First page for RANGE page policy.");
-        installTooltip(pageTo, "Last page for RANGE page policy.");
-        installTooltip(pageList, "Comma-separated page numbers for LIST page policy.");
-        installTooltip(ocrLanguage, "Default OCR language for fields that do not override OCR settings.");
-        installTooltip(ocrDatapath, "Optional Tesseract datapath override.");
-
-        addDraftListener(categoryId, this::applyCategoryMetadata);
-        addDraftListener(categoryDisplayName, this::applyCategoryMetadata);
-        addDraftListener(categoryDescription, this::applyCategoryMetadata);
-        addDraftListener(categoryVersion, this::applyCategoryMetadata);
-        pageType.selectedToggleProperty().addListener((obs, old, value) -> {
-            updatePagePolicyFieldsVisibility();
-            applyPages();
-        });
-        addDraftListener(pageNumber, this::applyPages);
-        addDraftListener(pageFrom, this::applyPages);
-        addDraftListener(pageTo, this::applyPages);
-        addDraftListener(pageList, this::applyPages);
-        addDraftListener(ocrLanguage, this::applyOcrDefaults);
-        addDraftListener(ocrDatapath, this::applyOcrDefaults);
-
-        updatePagePolicyFieldsVisibility();
-    }
-
-    private void configureOtherDetailsForms() {
-        installTooltip(fieldsCount, "Number of fields configured for extraction.");
-        installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
-        installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
-        installTooltip(fieldRegionWidth, "Field region width in image/reference coordinates.");
-        installTooltip(fieldRegionHeight, "Field region height in image/reference coordinates.");
-        drawFieldRegion.setGraphic(svgIcon("mode-draw-region.svg"));
-        drawFieldRegion.setTooltip(new Tooltip("Draw field region on document preview."));
-        drawFieldRegion.setMinSize(36, 32);
-        drawFieldRegion.setPrefSize(36, 32);
-        drawFieldRegion.setMaxSize(36, 32);
-
-        addDraftListener(fieldRegionX, this::applySelectedFieldRegion);
-        addDraftListener(fieldRegionY, this::applySelectedFieldRegion);
-        addDraftListener(fieldRegionWidth, this::applySelectedFieldRegion);
-        addDraftListener(fieldRegionHeight, this::applySelectedFieldRegion);
-        drawFieldRegion.setOnAction(event -> activateFieldRegionDrawing());
-    }
-
-    private javafx.scene.Node detailsFormForSelection() {
-        return switch (selectedNodeType()) {
-            case IDENTIFICATION, IDENTIFICATION_GROUP, CONDITION -> identificationDetailsForm();
-            case ANCHORS, ANCHOR -> anchorsDetailsForm();
-            case GEOMETRY, GEOMETRY_STRATEGY -> geometryDetailsForm();
-            case FIELDS, FIELD, FIELD_OCR, FIELD_OUTPUT, FIELD_IMAGE_PROCESSORS, FIELD_TRANSFORMERS, FIELD_VALIDATORS, PIPELINE_STEP -> fieldsDetailsForm();
-            case ROOT -> categoryDetailsForm();
-        };
-    }
-
-    private VBox categoryDetailsForm() {
-        var categorySection = section("Category");
-        addFormRow(categorySection, "ID", categoryId);
-        addFormRow(categorySection, "Display Name", categoryDisplayName);
-        addFormRow(categorySection, "Description", categoryDescription);
-        addFormRow(categorySection, "Version", categoryVersion);
-
-        var pagePolicySection = section("Page Policy");
-        detachFromParent(pageTypeControls);
-        pagePolicySection.getChildren().add(pageTypeControls);
-        addFormRow(pagePolicySection, "Page", pageNumber, pageNumberField);
-        addFormRow(pagePolicySection, "From", pageFrom, pageFromField);
-        addFormRow(pagePolicySection, "To", pageTo, pageToField);
-        addFormRow(pagePolicySection, "Pages", pageList, pageListField);
-
-        var ocrSection = section("OCR");
-        addFormRow(ocrSection, "Language", ocrLanguage);
-        addFormRow(ocrSection, "Datapath", ocrDatapath);
-        return new VBox(10, categorySection, pagePolicySection, ocrSection, detailsInfo);
-    }
-
-    private javafx.scene.Node identificationDetailsForm() {
-        return identificationPropertiesPanel.view();
-    }
-
-    private javafx.scene.Node anchorsDetailsForm() {
-        return anchorPropertiesPanel.view();
-    }
-
-    private javafx.scene.Node geometryDetailsForm() {
-        return geometryPropertiesPanel.view();
-    }
-
-    private VBox fieldsDetailsForm() {
-        var section = section("Fields");
-        var selected = selectedTreeNode();
-        if (selected != null && selected.type() == TreeNodeType.FIELD) {
-            addFormRow(section, "Region X", fieldRegionX);
-            addFormRow(section, "Region Y", fieldRegionY);
-            addFormRow(section, "Region Width", fieldRegionWidth);
-            addFormRow(section, "Region Height", fieldRegionHeight);
-            detachFromParent(drawFieldRegion);
-            section.getChildren().add(drawFieldRegion);
-        } else {
-            addFormRow(section, "Fields", fieldsCount);
-        }
-        return new VBox(10, section, detailsInfo);
     }
 
     private VBox emptyDetailsForm() {
@@ -952,83 +771,6 @@ public final class ConfiguratorApplication extends Application {
         installTooltip(message, "No category draft is currently open.");
         section.getChildren().add(message);
         return new VBox(10, section, detailsInfo);
-    }
-
-    private void updatePagePolicyFieldsVisibility() {
-        var selected = selectedPageType();
-        setVisibleManaged(pageNumberField, PAGE_TYPE_SINGLE.equals(selected));
-        setVisibleManaged(pageFromField, PAGE_TYPE_RANGE.equals(selected));
-        setVisibleManaged(pageToField, PAGE_TYPE_RANGE.equals(selected));
-        setVisibleManaged(pageListField, PAGE_TYPE_LIST.equals(selected));
-    }
-
-    private void applyCategoryMetadata() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.updateCategoryMetadata(categoryId.getText(), categoryDisplayName.getText(),
-                categoryDescription.getText(), categoryVersion.getText());
-            refreshAfterDraftEdit();
-        });
-    }
-
-    private void applyPages() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.updatePages(new pl.sk.ocr.config.dto.PageSelectionDto(
-                selectedPageType(),
-                parseInteger(pageNumber.getText()),
-                parseInteger(pageFrom.getText()),
-                parseInteger(pageTo.getText()),
-                parseIntegerList(pageList.getText())
-            ));
-            refreshAfterDraftEdit();
-            renderOcrOverlay();
-        });
-    }
-
-    private void applyOcrDefaults() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.updateOcr(new pl.sk.ocr.config.dto.OcrSettingsDto(blankToNull(ocrLanguage.getText()), blankToNull(ocrDatapath.getText())));
-            refreshAfterDraftEdit();
-        });
-    }
-
-    private void applyGeometry() {
-        geometryPropertiesPanel.commit();
-    }
-
-    private void applySelectedFieldRegion() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.FIELD) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.updateFieldRegion(selected.index(), new RegionDto(
-                parseDouble(fieldRegionX.getText()),
-                parseDouble(fieldRegionY.getText()),
-                parseDouble(fieldRegionWidth.getText()),
-                parseDouble(fieldRegionHeight.getText())
-            ));
-            refreshAfterDraftEdit();
-        });
-    }
-
-    private void applySelectedCondition() {
-        identificationPropertiesPanel.commit();
-    }
-
-    private void applySelectedAnchor() {
-        anchorPropertiesPanel.commit();
     }
 
     private void activateFieldRegionDrawing() {
@@ -1108,6 +850,8 @@ public final class ConfiguratorApplication extends Application {
             updateSelectedAnchorSearchRegionFromViewer(region, commit);
         } else if (targetType == RegionTargetType.ANCHOR_REFERENCE_BOUNDS) {
             updateSelectedAnchorReferenceBoundsFromViewer(region, commit);
+        } else if (targetType == RegionTargetType.FIELD_REGION) {
+            fieldPropertiesPanel.updateFieldRegionFromViewer(region, commit);
         }
     }
 
@@ -1117,7 +861,7 @@ public final class ConfiguratorApplication extends Application {
         }
         runUiSafe(() -> {
             if (regionEditTarget.type() == RegionTargetType.FIELD_REGION) {
-                viewModel.updateFieldRegion(regionEditTarget.index(), region);
+                fieldPropertiesPanel.replaceFieldRegion(regionEditTarget.index(), region);
             } else if (regionEditTarget.type() == RegionTargetType.CONDITION_SEARCH_REGION) {
                 identificationPropertiesPanel.replaceConditionSearchRegion(regionEditTarget.index(), regionEditTarget.childIndex(), region);
             } else if (regionEditTarget.type() == RegionTargetType.ANCHOR_SEARCH_REGION) {
@@ -1174,38 +918,12 @@ public final class ConfiguratorApplication extends Application {
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
     }
 
-    private void clearCategoryDetailsForm() {
-        categoryId.clear();
-        categoryDisplayName.clear();
-        categoryDescription.clear();
-        categoryVersion.clear();
-        selectPageType(PAGE_TYPE_SINGLE);
-        pageNumber.clear();
-        pageFrom.clear();
-        pageTo.clear();
-        pageList.clear();
-        ocrLanguage.clear();
-        ocrDatapath.clear();
-    }
-
     private Integer parseInteger(String value) {
         var text = blankToNull(value);
         if (text == null) {
             return null;
         }
         return Integer.parseInt(text);
-    }
-
-    private double parseDouble(String value) {
-        var text = blankToNull(value);
-        if (text == null) {
-            return 0.0;
-        }
-        return Double.parseDouble(text);
-    }
-
-    private String formatRegionNumber(double value) {
-        return String.valueOf(Math.round(value));
     }
 
     private RegionDto roundedRegion(double x, double y, double width, double height) {
@@ -1243,18 +961,6 @@ public final class ConfiguratorApplication extends Application {
         return normalized == null ? null : new ExtensionRefDto(normalized, Map.of());
     }
 
-    private java.util.List<Integer> parseIntegerList(String value) {
-        var text = blankToNull(value);
-        if (text == null) {
-            return null;
-        }
-        return java.util.Arrays.stream(text.split(","))
-            .map(String::trim)
-            .filter(part -> !part.isEmpty())
-            .map(Integer::parseInt)
-            .toList();
-    }
-
     private java.util.List<String> parseStringList(String value) {
         var text = blankToNull(value);
         if (text == null) {
@@ -1278,11 +984,6 @@ public final class ConfiguratorApplication extends Application {
         return value == null || value.isBlank() ? defaultValue : value;
     }
 
-    private String selectedPageType() {
-        var selected = pageType.getSelectedToggle();
-        return selected == null ? PAGE_TYPE_SINGLE : selected.getUserData().toString();
-    }
-
     private TreeNodeType selectedNodeType() {
         var selected = selectedTreeNode();
         return selected == null ? TreeNodeType.ROOT : selected.type();
@@ -1293,13 +994,9 @@ public final class ConfiguratorApplication extends Application {
         return selected == null ? null : selected.getValue();
     }
 
-    private pl.sk.ocr.config.dto.FieldDto selectedField() {
+    private int selectedFieldIndex() {
         var selected = selectedTreeNode();
-        var fields = fields();
-        if (selected == null || selected.type() != TreeNodeType.FIELD || selected.index() < 0 || selected.index() >= fields.size()) {
-            return null;
-        }
-        return fields.get(selected.index());
+        return selected == null || selected.type() != TreeNodeType.FIELD ? -1 : selected.index();
     }
 
     private List<pl.sk.ocr.config.dto.FieldDto> fields() {
@@ -1469,15 +1166,6 @@ public final class ConfiguratorApplication extends Application {
 
     private String labelOrDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private void selectPageType(String type) {
-        switch (type) {
-            case PAGE_TYPE_RANGE -> pageType.selectToggle(pageTypeRange);
-            case PAGE_TYPE_LIST -> pageType.selectToggle(pageTypeList);
-            case PAGE_TYPE_ALL -> pageType.selectToggle(pageTypeAll);
-            default -> pageType.selectToggle(pageTypeSingle);
-        }
     }
 
     private void runUiSafe(Runnable runnable) {
@@ -1790,7 +1478,7 @@ public final class ConfiguratorApplication extends Application {
         }
     }
 
-    private enum TreeNodeType {
+    enum TreeNodeType {
         ROOT,
         IDENTIFICATION,
         IDENTIFICATION_GROUP,
