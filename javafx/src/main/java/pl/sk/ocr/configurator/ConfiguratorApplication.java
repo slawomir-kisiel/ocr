@@ -3,7 +3,9 @@ package pl.sk.ocr.configurator;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -106,6 +108,7 @@ public final class ConfiguratorApplication extends Application {
     private boolean refreshingDetails;
     private ViewerMode viewerMode = ViewerMode.SELECT;
     private RegionEditTarget regionEditTarget;
+    private String pendingTreeSelectionId;
 
     public static void main(String[] args) {
         launch(args);
@@ -563,7 +566,9 @@ public final class ConfiguratorApplication extends Application {
 
     private void refreshTree() {
         var draft = viewModel.draft();
-        var selectedId = selectedTreeNodeId();
+        var selectedId = pendingTreeSelectionId != null ? pendingTreeSelectionId : selectedTreeNodeId();
+        pendingTreeSelectionId = null;
+        var expandedNodeIds = expandedTreeNodeIds(configurationTree.getRoot());
         var root = new TreeItem<>(draft == null
             ? ConfigurationTreeNode.root("No category")
             : ConfigurationTreeNode.root("Category: " + draft.id()));
@@ -575,7 +580,8 @@ public final class ConfiguratorApplication extends Application {
             root.getChildren().add(fieldsTree(draft.fields()));
         }
         configurationTree.setRoot(root);
-        selectTreeNode(root, selectedId);
+        restoreExpandedTreeNodes(root, expandedNodeIds);
+        selectTreeNodeAndExpandParents(root, selectedId);
     }
 
     private TreeItem<ConfigurationTreeNode> identificationTree(pl.sk.ocr.config.dto.IdentificationDto identification) {
@@ -784,7 +790,9 @@ public final class ConfiguratorApplication extends Application {
         drawFieldRegion.setMaxSize(36, 32);
 
         addIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
+            var newIndex = identificationGroups().size();
             viewModel.addIdentificationGroup(new ConditionGroupDto(java.util.List.of()));
+            pendingTreeSelectionId = "identification.group." + newIndex;
             refreshAll();
         }));
         removeLastIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
@@ -793,6 +801,7 @@ public final class ConfiguratorApplication extends Application {
                 : viewModel.draft().identification().groups();
             if (!groups.isEmpty()) {
                 viewModel.removeIdentificationGroup(groups.size() - 1);
+                pendingTreeSelectionId = "identification";
                 refreshAll();
             }
         }));
@@ -840,11 +849,111 @@ public final class ConfiguratorApplication extends Application {
 
     private VBox identificationDetailsForm() {
         var section = section("Identification");
-        addFormRow(section, "Groups", identificationGroupsCount);
-        detachFromParent(addIdentificationGroup);
-        detachFromParent(removeLastIdentificationGroup);
-        section.getChildren().add(new HBox(8, addIdentificationGroup, removeLastIdentificationGroup));
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() == TreeNodeType.IDENTIFICATION) {
+            addFormRow(section, "Groups", identificationGroupsCount);
+            detachFromParent(addIdentificationGroup);
+            section.getChildren().add(addIdentificationGroup);
+        } else if (selected.type() == TreeNodeType.IDENTIFICATION_GROUP) {
+            identificationGroupControls(section, selected.index());
+        } else if (selected.type() == TreeNodeType.CONDITION) {
+            conditionControls(section, selected.index(), selected.childIndex());
+        }
         return new VBox(10, section, detailsInfo);
+    }
+
+    private void identificationGroupControls(VBox section, int groupIndex) {
+        var groups = identificationGroups();
+        var conditionsCount = groupIndex >= 0 && groupIndex < groups.size() && groups.get(groupIndex).conditions() != null
+            ? groups.get(groupIndex).conditions().size()
+            : 0;
+        addFormRow(section, "Group", new Label(String.valueOf(groupIndex + 1)));
+        addFormRow(section, "Conditions", new Label(String.valueOf(conditionsCount)));
+        var addCondition = button("Add Condition", () -> runUiSafe(() -> {
+            var newIndex = conditions(groupIndex).size();
+            viewModel.addCondition(groupIndex, new pl.sk.ocr.config.dto.ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
+            pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + newIndex;
+            refreshAll();
+        }));
+        var moveUp = button("Move Up", () -> runUiSafe(() -> {
+            if (groupIndex > 0) {
+                viewModel.moveIdentificationGroup(groupIndex, groupIndex - 1);
+                pendingTreeSelectionId = "identification.group." + (groupIndex - 1);
+                refreshAll();
+            }
+        }));
+        var moveDown = button("Move Down", () -> runUiSafe(() -> {
+            if (groupIndex < identificationGroups().size() - 1) {
+                viewModel.moveIdentificationGroup(groupIndex, groupIndex + 1);
+                pendingTreeSelectionId = "identification.group." + (groupIndex + 1);
+                refreshAll();
+            }
+        }));
+        var remove = button("Remove Group", () -> runUiSafe(() -> {
+            viewModel.removeIdentificationGroup(groupIndex);
+            pendingTreeSelectionId = "identification";
+            refreshAll();
+        }));
+        moveUp.setDisable(groupIndex <= 0);
+        moveDown.setDisable(groupIndex >= groups.size() - 1);
+        section.getChildren().add(new HBox(8, addCondition, moveUp, moveDown, remove));
+    }
+
+    private void conditionControls(VBox section, int groupIndex, int conditionIndex) {
+        var condition = condition(groupIndex, conditionIndex);
+        addFormRow(section, "Group", new Label(String.valueOf(groupIndex + 1)));
+        addFormRow(section, "Condition", new Label(String.valueOf(conditionIndex + 1)));
+        var type = new ComboBox<String>();
+        type.getItems().setAll("TEXT", "QR", "BARCODE");
+        type.setValue(condition == null || condition.type() == null ? "TEXT" : condition.type());
+        type.setTooltip(new Tooltip("Condition type."));
+        type.valueProperty().addListener((obs, old, value) -> {
+            if (refreshingDetails || condition(groupIndex, conditionIndex) == null) {
+                return;
+            }
+            var current = condition(groupIndex, conditionIndex);
+            runUiSafe(() -> {
+                viewModel.replaceCondition(groupIndex, conditionIndex, new pl.sk.ocr.config.dto.ConditionDto(
+                    value,
+                    current.page(),
+                    current.expectedText(),
+                    current.matcher(),
+                    current.detector(),
+                    current.searchRegion()
+                ));
+                refreshAll();
+            });
+        });
+        addFormRow(section, "Type", type);
+        var addCondition = button("Add Condition", () -> runUiSafe(() -> {
+            var newIndex = conditions(groupIndex).size();
+            viewModel.addCondition(groupIndex, new pl.sk.ocr.config.dto.ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
+            pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + newIndex;
+            refreshAll();
+        }));
+        var moveUp = button("Move Up", () -> runUiSafe(() -> {
+            if (conditionIndex > 0) {
+                viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex - 1);
+                pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + (conditionIndex - 1);
+                refreshAll();
+            }
+        }));
+        var moveDown = button("Move Down", () -> runUiSafe(() -> {
+            var conditions = conditions(groupIndex);
+            if (conditionIndex < conditions.size() - 1) {
+                viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex + 1);
+                pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + (conditionIndex + 1);
+                refreshAll();
+            }
+        }));
+        var remove = button("Remove Condition", () -> runUiSafe(() -> {
+            viewModel.removeCondition(groupIndex, conditionIndex);
+            pendingTreeSelectionId = "identification.group." + groupIndex;
+            refreshAll();
+        }));
+        moveUp.setDisable(conditionIndex <= 0);
+        moveDown.setDisable(conditionIndex >= conditions(groupIndex).size() - 1);
+        section.getChildren().add(new HBox(8, addCondition, moveUp, moveDown, remove));
     }
 
     private VBox anchorsDetailsForm() {
@@ -1171,6 +1280,28 @@ public final class ConfiguratorApplication extends Application {
         return fields.get(selected.index());
     }
 
+    private List<ConditionGroupDto> identificationGroups() {
+        return viewModel.draft() == null || viewModel.draft().identification() == null || viewModel.draft().identification().groups() == null
+            ? List.of()
+            : viewModel.draft().identification().groups();
+    }
+
+    private List<pl.sk.ocr.config.dto.ConditionDto> conditions(int groupIndex) {
+        var groups = identificationGroups();
+        if (groupIndex < 0 || groupIndex >= groups.size() || groups.get(groupIndex).conditions() == null) {
+            return List.of();
+        }
+        return groups.get(groupIndex).conditions();
+    }
+
+    private pl.sk.ocr.config.dto.ConditionDto condition(int groupIndex, int conditionIndex) {
+        var conditions = conditions(groupIndex);
+        if (conditionIndex < 0 || conditionIndex >= conditions.size()) {
+            return null;
+        }
+        return conditions.get(conditionIndex);
+    }
+
     private String selectedTreeNodeId() {
         var selected = configurationTree.getSelectionModel().getSelectedItem();
         return selected == null || selected.getValue() == null ? null : selected.getValue().id();
@@ -1191,6 +1322,51 @@ public final class ConfiguratorApplication extends Application {
             return true;
         }
         return false;
+    }
+
+    private boolean selectTreeNodeAndExpandParents(TreeItem<ConfigurationTreeNode> item, String id) {
+        if (id == null) {
+            return selectTreeNode(item, null);
+        }
+        if (id.equals(item.getValue().id())) {
+            configurationTree.getSelectionModel().select(item);
+            return true;
+        }
+        for (var child : item.getChildren()) {
+            if (selectTreeNodeAndExpandParents(child, id)) {
+                item.setExpanded(true);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<String> expandedTreeNodeIds(TreeItem<ConfigurationTreeNode> item) {
+        var ids = new HashSet<String>();
+        collectExpandedTreeNodeIds(item, ids);
+        return ids;
+    }
+
+    private void collectExpandedTreeNodeIds(TreeItem<ConfigurationTreeNode> item, Set<String> ids) {
+        if (item == null || item.getValue() == null) {
+            return;
+        }
+        if (item.isExpanded()) {
+            ids.add(item.getValue().id());
+        }
+        for (var child : item.getChildren()) {
+            collectExpandedTreeNodeIds(child, ids);
+        }
+    }
+
+    private void restoreExpandedTreeNodes(TreeItem<ConfigurationTreeNode> item, Set<String> expandedNodeIds) {
+        if (item == null || item.getValue() == null) {
+            return;
+        }
+        item.setExpanded(item.getValue().type() == TreeNodeType.ROOT || expandedNodeIds.contains(item.getValue().id()));
+        for (var child : item.getChildren()) {
+            restoreExpandedTreeNodes(child, expandedNodeIds);
+        }
     }
 
     private void switchToNodePage(ConfigurationTreeNode node) {

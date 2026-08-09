@@ -66,6 +66,7 @@ Każde zadanie powinno zachować zasady architektury UI:
 - UI używa tego samego Core co CLI.
 - PDFBox, Tess4J i ZXing są ukryte za use case'ami lub adapterami.
 - Logika edycji i preview trafia do ViewModel/use case, nie do samego widoku.
+- Operacje zarządzania strukturą konfiguracji zachowują kontekst drzewa: po dodaniu elementu zaznaczany jest nowy element i rozwijany jest jego parent, a po usunięciu zaznaczany jest parent usuniętego elementu.
 - Ciężkie operacje działają poza JavaFX Application Thread.
 - Zapis JSON jest deterministyczny i UTF-8.
 - Semantycznie błędny draft może zostać zapisany, ale UI musi pokazać błędy.

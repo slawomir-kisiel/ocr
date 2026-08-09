@@ -108,6 +108,10 @@ public final class CategoryEditorViewModel {
         replaceDraft(draftEditor.addCondition(requireDraft(), groupIndex, condition));
     }
 
+    public void replaceCondition(int groupIndex, int conditionIndex, ConditionDto condition) {
+        replaceDraft(draftEditor.replaceCondition(requireDraft(), groupIndex, conditionIndex, condition));
+    }
+
     public void removeCondition(int groupIndex, int conditionIndex) {
         replaceDraft(draftEditor.removeCondition(requireDraft(), groupIndex, conditionIndex));
     }

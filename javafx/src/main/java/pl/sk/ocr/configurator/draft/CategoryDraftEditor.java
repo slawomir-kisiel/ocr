@@ -76,6 +76,12 @@ public final class CategoryDraftEditor {
         return updateGroup(draft, groupIndex, group -> new ConditionGroupDto(add(group.conditions(), requireNonNull(condition, "condition"))));
     }
 
+    public CategoryDto replaceCondition(CategoryDto draft, int groupIndex, int conditionIndex, ConditionDto condition) {
+        requireDraft(draft);
+        requireNonNull(condition, "condition");
+        return updateGroup(draft, groupIndex, group -> new ConditionGroupDto(replace(group.conditions(), conditionIndex, condition, "condition")));
+    }
+
     public CategoryDto removeCondition(CategoryDto draft, int groupIndex, int conditionIndex) {
         requireDraft(draft);
         return updateGroup(draft, groupIndex, group -> new ConditionGroupDto(remove(group.conditions(), conditionIndex, "condition")));

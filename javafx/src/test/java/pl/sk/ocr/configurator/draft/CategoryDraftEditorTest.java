@@ -63,6 +63,16 @@ class CategoryDraftEditorTest {
     }
 
     @Test
+    void replacesIdentificationCondition() {
+        var draft = editor.newCategory("invoice", "Invoice");
+
+        draft = editor.replaceCondition(draft, 0, 0, new ConditionDto("QR", 2, null, null, null, null));
+
+        assertThat(draft.identification().groups().get(0).conditions().get(0).type()).isEqualTo("QR");
+        assertThat(draft.identification().groups().get(0).conditions().get(0).page()).isEqualTo(2);
+    }
+
+    @Test
     void updatesPipelineSteps() {
         var draft = editor.addField(editor.newCategory("invoice", "Invoice"), field("number"));
 
