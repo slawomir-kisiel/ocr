@@ -44,7 +44,11 @@ import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
+import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
 import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
+import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel;
+import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection;
+import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.SelectionType;
 import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
 import pl.sk.ocr.configurator.viewer.ViewerPoint;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
@@ -87,35 +91,6 @@ public final class ConfiguratorApplication extends Application {
     private final TextField ocrLanguage = new TextField();
     private final TextField ocrDatapath = new TextField();
     private final Label detailsInfo = new Label();
-    private final Label identificationGroupsCount = new Label();
-    private final Button addIdentificationGroup = new Button("Add Group");
-    private final Button removeLastIdentificationGroup = new Button("Remove Last Group");
-    private final ComboBox<String> conditionType = new ComboBox<>();
-    private final TextField conditionPage = new TextField();
-    private final TextField conditionExpectedText = new TextField();
-    private final TextField conditionMatcherId = new TextField();
-    private final TextField conditionDetectorId = new TextField();
-    private final Spinner<Integer> conditionSearchRegionX = regionSpinner();
-    private final Spinner<Integer> conditionSearchRegionY = regionSpinner();
-    private final Spinner<Integer> conditionSearchRegionWidth = regionSpinner();
-    private final Spinner<Integer> conditionSearchRegionHeight = regionSpinner();
-    private final Button drawConditionSearchRegion = new Button();
-    private final Label anchorsCount = new Label();
-    private final Button addAnchor = new Button("Add Anchor");
-    private final TextField anchorId = new TextField();
-    private final TextField anchorPage = new TextField();
-    private final TextField anchorDetectorId = new TextField();
-    private final CheckBox anchorRequired = new CheckBox();
-    private final Spinner<Integer> anchorSearchRegionX = regionSpinner();
-    private final Spinner<Integer> anchorSearchRegionY = regionSpinner();
-    private final Spinner<Integer> anchorSearchRegionWidth = regionSpinner();
-    private final Spinner<Integer> anchorSearchRegionHeight = regionSpinner();
-    private final Spinner<Integer> anchorReferenceBoundsX = regionSpinner();
-    private final Spinner<Integer> anchorReferenceBoundsY = regionSpinner();
-    private final Spinner<Integer> anchorReferenceBoundsWidth = regionSpinner();
-    private final Spinner<Integer> anchorReferenceBoundsHeight = regionSpinner();
-    private final Button drawAnchorSearchRegion = new Button();
-    private final Button drawAnchorReferenceBounds = new Button();
     private final Label fieldsCount = new Label();
     private final TextField fieldRegionX = new TextField();
     private final TextField fieldRegionY = new TextField();
@@ -138,6 +113,8 @@ public final class ConfiguratorApplication extends Application {
     private RegionEditTarget regionEditTarget;
     private String pendingTreeSelectionId;
     private GeometryPropertiesPanel geometryPropertiesPanel;
+    private AnchorPropertiesPanel anchorPropertiesPanel;
+    private IdentificationPropertiesPanel identificationPropertiesPanel;
 
     public static void main(String[] args) {
         launch(args);
@@ -154,6 +131,12 @@ public final class ConfiguratorApplication extends Application {
             services.backgroundExecutor()
         );
         geometryPropertiesPanel = new GeometryPropertiesPanel(viewModel, this::anchors, this::fields, pageImage::getImage, status, detailsInfo, this::refreshAfterDraftEdit);
+        anchorPropertiesPanel = new AnchorPropertiesPanel(viewModel, this::anchors, this::selectedAnchorIndex, detailsInfo,
+            this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
+            this::activateAnchorSearchRegionDrawing, this::activateAnchorReferenceBoundsDrawing, this::svgIcon);
+        identificationPropertiesPanel = new IdentificationPropertiesPanel(viewModel, this::identificationSelection, detailsInfo,
+            this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
+            this::activateConditionSearchRegionDrawing, this::svgIcon);
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -623,7 +606,7 @@ public final class ConfiguratorApplication extends Application {
 
     private void renderSelectedConditionRegionOverlay() {
         var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.CONDITION || !hasValidConditionSearchRegion()) {
+        if (selected == null || selected.type() != TreeNodeType.CONDITION || !identificationPropertiesPanel.hasValidConditionSearchRegion()) {
             viewer.clearEditableRegions();
             return;
         }
@@ -632,7 +615,7 @@ public final class ConfiguratorApplication extends Application {
             viewer.clearEditableRegions();
             return;
         }
-        var screen = viewer.mapper().imageToScreen(toDomainRegion(conditionSearchRegion()));
+        var screen = viewer.mapper().imageToScreen(toDomainRegion(identificationPropertiesPanel.conditionSearchRegion()));
         var rectangle = new Rectangle(screen.x(), screen.y(), screen.width(), screen.height());
         rectangle.setFill(Color.color(0.12, 0.48, 0.93, 0.12));
         rectangle.setStroke(Color.web("#1f7aec"));
@@ -815,36 +798,8 @@ public final class ConfiguratorApplication extends Application {
         var ocr = draft.ocr();
         ocrLanguage.setText(ocr == null ? "" : nullToEmpty(ocr.language()));
         ocrDatapath.setText(ocr == null ? "" : nullToEmpty(ocr.datapath()));
-        identificationGroupsCount.setText(String.valueOf(draft.identification() == null || draft.identification().groups() == null
-            ? 0
-            : draft.identification().groups().size()));
-        var selectedCondition = selectedCondition();
-        conditionType.setValue(selectedCondition == null || selectedCondition.type() == null ? "TEXT" : selectedCondition.type());
-        conditionPage.setText(selectedCondition == null || selectedCondition.page() == null ? "" : selectedCondition.page().toString());
-        conditionExpectedText.setText(selectedCondition == null ? "" : nullToEmpty(selectedCondition.expectedText()));
-        conditionMatcherId.setText(selectedCondition == null || selectedCondition.matcher() == null ? "" : nullToEmpty(selectedCondition.matcher().id()));
-        conditionDetectorId.setText(selectedCondition == null || selectedCondition.detector() == null ? "" : nullToEmpty(selectedCondition.detector().id()));
-        var conditionRegion = selectedCondition == null ? null : selectedCondition.searchRegion();
-        setRegionSpinnerText(conditionSearchRegionX, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.x()));
-        setRegionSpinnerText(conditionSearchRegionY, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.y()));
-        setRegionSpinnerText(conditionSearchRegionWidth, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.width()));
-        setRegionSpinnerText(conditionSearchRegionHeight, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.height()));
-        anchorsCount.setText(String.valueOf(draft.anchors() == null ? 0 : draft.anchors().size()));
-        var selectedAnchor = selectedAnchor();
-        anchorId.setText(selectedAnchor == null ? "" : nullToEmpty(selectedAnchor.id()));
-        anchorPage.setText(selectedAnchor == null || selectedAnchor.page() == null ? "" : selectedAnchor.page().toString());
-        anchorDetectorId.setText(selectedAnchor == null || selectedAnchor.detector() == null ? "" : nullToEmpty(selectedAnchor.detector().id()));
-        anchorRequired.setSelected(selectedAnchor != null && Boolean.TRUE.equals(selectedAnchor.required()));
-        var anchorSearchRegion = selectedAnchor == null ? null : selectedAnchor.searchRegion();
-        setRegionSpinnerText(anchorSearchRegionX, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.x()));
-        setRegionSpinnerText(anchorSearchRegionY, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.y()));
-        setRegionSpinnerText(anchorSearchRegionWidth, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.width()));
-        setRegionSpinnerText(anchorSearchRegionHeight, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.height()));
-        var anchorReferenceBounds = selectedAnchor == null || selectedAnchor.referenceFeature() == null ? null : selectedAnchor.referenceFeature().bounds();
-        setRegionSpinnerText(anchorReferenceBoundsX, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.x()));
-        setRegionSpinnerText(anchorReferenceBoundsY, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.y()));
-        setRegionSpinnerText(anchorReferenceBoundsWidth, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.width()));
-        setRegionSpinnerText(anchorReferenceBoundsHeight, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.height()));
+        identificationPropertiesPanel.refresh();
+        anchorPropertiesPanel.refresh();
         fieldsCount.setText(String.valueOf(draft.fields() == null ? 0 : draft.fields().size()));
         geometryPropertiesPanel.refresh();
         var selectedField = selectedField();
@@ -878,8 +833,6 @@ public final class ConfiguratorApplication extends Application {
         categoryDescription.setWrapText(true);
         detailsInfo.setWrapText(true);
         detailsInfo.setStyle("-fx-text-fill: #111827;");
-        identificationGroupsCount.setStyle("-fx-text-fill: #111827;");
-        anchorsCount.setStyle("-fx-text-fill: #111827;");
         fieldsCount.setStyle("-fx-text-fill: #111827;");
         installTooltip(categoryId, "Unique category identifier written to category JSON.");
         installTooltip(categoryDisplayName, "Human-readable category name shown in UI and diagnostics.");
@@ -915,48 +868,6 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void configureOtherDetailsForms() {
-        installTooltip(identificationGroupsCount, "Number of OR groups in category identification.");
-        installTooltip(addIdentificationGroup, "Add a new empty OR group.");
-        installTooltip(removeLastIdentificationGroup, "Remove the last OR group.");
-        conditionType.getItems().setAll("TEXT", "QR", "BARCODE");
-        installTooltip(conditionType, "Condition type.");
-        installTooltip(conditionPage, "Page where this condition should be evaluated. Empty means default behavior.");
-        installTooltip(conditionExpectedText, "Text expected by TEXT condition.");
-        installTooltip(conditionMatcherId, "Matcher extension id used by this condition.");
-        installTooltip(conditionDetectorId, "Detector extension id used by this condition.");
-        installTooltip(conditionSearchRegionX, "Condition search region X coordinate.");
-        installTooltip(conditionSearchRegionY, "Condition search region Y coordinate.");
-        installTooltip(conditionSearchRegionWidth, "Condition search region width.");
-        installTooltip(conditionSearchRegionHeight, "Condition search region height.");
-        drawConditionSearchRegion.setGraphic(svgIcon("mode-draw-region.svg"));
-        drawConditionSearchRegion.setTooltip(new Tooltip("Draw condition search region on document preview."));
-        drawConditionSearchRegion.setMinSize(36, 32);
-        drawConditionSearchRegion.setPrefSize(36, 32);
-        drawConditionSearchRegion.setMaxSize(36, 32);
-        installTooltip(anchorsCount, "Number of anchors configured for geometry detection.");
-        installTooltip(addAnchor, "Add a new anchor.");
-        installTooltip(anchorId, "Anchor id used by geometry strategy references.");
-        installTooltip(anchorPage, "Page where this anchor should be detected.");
-        installTooltip(anchorDetectorId, "Detector extension id used by this anchor.");
-        installTooltip(anchorRequired, "Whether missing anchor should fail geometry detection.");
-        installTooltip(anchorSearchRegionX, "Anchor search region X coordinate.");
-        installTooltip(anchorSearchRegionY, "Anchor search region Y coordinate.");
-        installTooltip(anchorSearchRegionWidth, "Anchor search region width.");
-        installTooltip(anchorSearchRegionHeight, "Anchor search region height.");
-        installTooltip(anchorReferenceBoundsX, "Reference feature bounds X coordinate.");
-        installTooltip(anchorReferenceBoundsY, "Reference feature bounds Y coordinate.");
-        installTooltip(anchorReferenceBoundsWidth, "Reference feature bounds width.");
-        installTooltip(anchorReferenceBoundsHeight, "Reference feature bounds height.");
-        drawAnchorSearchRegion.setGraphic(svgIcon("mode-draw-region.svg"));
-        drawAnchorSearchRegion.setTooltip(new Tooltip("Draw anchor search region on document preview."));
-        drawAnchorSearchRegion.setMinSize(36, 32);
-        drawAnchorSearchRegion.setPrefSize(36, 32);
-        drawAnchorSearchRegion.setMaxSize(36, 32);
-        drawAnchorReferenceBounds.setGraphic(svgIcon("mode-draw-region.svg"));
-        drawAnchorReferenceBounds.setTooltip(new Tooltip("Draw anchor reference feature bounds on document preview."));
-        drawAnchorReferenceBounds.setMinSize(36, 32);
-        drawAnchorReferenceBounds.setPrefSize(36, 32);
-        drawAnchorReferenceBounds.setMaxSize(36, 32);
         installTooltip(fieldsCount, "Number of fields configured for extraction.");
         installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
         installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
@@ -968,47 +879,6 @@ public final class ConfiguratorApplication extends Application {
         drawFieldRegion.setPrefSize(36, 32);
         drawFieldRegion.setMaxSize(36, 32);
 
-        addIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
-            var newIndex = identificationGroups().size();
-            viewModel.addIdentificationGroup(new ConditionGroupDto(java.util.List.of()));
-            pendingTreeSelectionId = "identification.group." + newIndex;
-            refreshAll();
-        }));
-        removeLastIdentificationGroup.setOnAction(event -> runUiSafe(() -> {
-            var groups = viewModel.draft().identification() == null || viewModel.draft().identification().groups() == null
-                ? java.util.List.<ConditionGroupDto>of()
-                : viewModel.draft().identification().groups();
-            if (!groups.isEmpty()) {
-                viewModel.removeIdentificationGroup(groups.size() - 1);
-                pendingTreeSelectionId = "identification";
-                refreshAll();
-            }
-        }));
-        conditionType.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
-        addDraftListener(conditionPage, this::applySelectedCondition);
-        addDraftListener(conditionExpectedText, this::applySelectedCondition);
-        addDraftListener(conditionMatcherId, this::applySelectedCondition);
-        addDraftListener(conditionDetectorId, this::applySelectedCondition);
-        addSpinnerListener(conditionSearchRegionX, this::applySelectedCondition);
-        addSpinnerListener(conditionSearchRegionY, this::applySelectedCondition);
-        addSpinnerListener(conditionSearchRegionWidth, this::applySelectedCondition);
-        addSpinnerListener(conditionSearchRegionHeight, this::applySelectedCondition);
-        drawConditionSearchRegion.setOnAction(event -> activateConditionSearchRegionDrawing());
-        addAnchor.setOnAction(event -> addAnchor());
-        addDraftListener(anchorId, this::applySelectedAnchor);
-        addDraftListener(anchorPage, this::applySelectedAnchor);
-        addDraftListener(anchorDetectorId, this::applySelectedAnchor);
-        anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
-        addSpinnerListener(anchorSearchRegionX, this::applySelectedAnchor);
-        addSpinnerListener(anchorSearchRegionY, this::applySelectedAnchor);
-        addSpinnerListener(anchorSearchRegionWidth, this::applySelectedAnchor);
-        addSpinnerListener(anchorSearchRegionHeight, this::applySelectedAnchor);
-        addSpinnerListener(anchorReferenceBoundsX, this::applySelectedAnchor);
-        addSpinnerListener(anchorReferenceBoundsY, this::applySelectedAnchor);
-        addSpinnerListener(anchorReferenceBoundsWidth, this::applySelectedAnchor);
-        addSpinnerListener(anchorReferenceBoundsHeight, this::applySelectedAnchor);
-        drawAnchorSearchRegion.setOnAction(event -> activateAnchorSearchRegionDrawing());
-        drawAnchorReferenceBounds.setOnAction(event -> activateAnchorReferenceBoundsDrawing());
         addDraftListener(fieldRegionX, this::applySelectedFieldRegion);
         addDraftListener(fieldRegionY, this::applySelectedFieldRegion);
         addDraftListener(fieldRegionWidth, this::applySelectedFieldRegion);
@@ -1047,172 +917,12 @@ public final class ConfiguratorApplication extends Application {
         return new VBox(10, categorySection, pagePolicySection, ocrSection, detailsInfo);
     }
 
-    private VBox identificationDetailsForm() {
-        var section = section("Identification");
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() == TreeNodeType.IDENTIFICATION) {
-            addFormRow(section, "Groups", identificationGroupsCount);
-            detachFromParent(addIdentificationGroup);
-            section.getChildren().add(addIdentificationGroup);
-        } else if (selected.type() == TreeNodeType.IDENTIFICATION_GROUP) {
-            identificationGroupControls(section, selected.index());
-        } else if (selected.type() == TreeNodeType.CONDITION) {
-            conditionControls(section, selected.index(), selected.childIndex());
-        }
-        return new VBox(10, section, detailsInfo);
+    private javafx.scene.Node identificationDetailsForm() {
+        return identificationPropertiesPanel.view();
     }
 
-    private void identificationGroupControls(VBox section, int groupIndex) {
-        var groups = identificationGroups();
-        var conditionsCount = groupIndex >= 0 && groupIndex < groups.size() && groups.get(groupIndex).conditions() != null
-            ? groups.get(groupIndex).conditions().size()
-            : 0;
-        addFormRow(section, "Group", new Label(String.valueOf(groupIndex + 1)));
-        addFormRow(section, "Conditions", new Label(String.valueOf(conditionsCount)));
-        var addCondition = button("Add Condition", () -> runUiSafe(() -> {
-            var newIndex = conditions(groupIndex).size();
-            viewModel.addCondition(groupIndex, new pl.sk.ocr.config.dto.ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
-            pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + newIndex;
-            refreshAll();
-        }));
-        var moveUp = button("Move Up", () -> runUiSafe(() -> {
-            if (groupIndex > 0) {
-                viewModel.moveIdentificationGroup(groupIndex, groupIndex - 1);
-                pendingTreeSelectionId = "identification.group." + (groupIndex - 1);
-                refreshAll();
-            }
-        }));
-        var moveDown = button("Move Down", () -> runUiSafe(() -> {
-            if (groupIndex < identificationGroups().size() - 1) {
-                viewModel.moveIdentificationGroup(groupIndex, groupIndex + 1);
-                pendingTreeSelectionId = "identification.group." + (groupIndex + 1);
-                refreshAll();
-            }
-        }));
-        var remove = button("Remove Group", () -> runUiSafe(() -> {
-            viewModel.removeIdentificationGroup(groupIndex);
-            pendingTreeSelectionId = "identification";
-            refreshAll();
-        }));
-        moveUp.setDisable(groupIndex <= 0);
-        moveDown.setDisable(groupIndex >= groups.size() - 1);
-        section.getChildren().add(new HBox(8, addCondition, moveUp, moveDown, remove));
-    }
-
-    private void conditionControls(VBox section, int groupIndex, int conditionIndex) {
-        var identificationContent = new VBox(8);
-        addFormRow(identificationContent, "Group", new Label(String.valueOf(groupIndex + 1)));
-        addFormRow(identificationContent, "Condition", new Label(String.valueOf(conditionIndex + 1)));
-        addFormRow(identificationContent, "Type", conditionType);
-        addFormRow(identificationContent, "Page", conditionPage);
-        addFormRow(identificationContent, "Expected Text", conditionExpectedText);
-        addFormRow(identificationContent, "Matcher ID", conditionMatcherId);
-        addFormRow(identificationContent, "Detector ID", conditionDetectorId);
-        section.getChildren().add(titledPane("Identification", identificationContent));
-
-        var searchRegionContent = new VBox(8);
-        addFormRow(searchRegionContent, "X", conditionSearchRegionX);
-        addFormRow(searchRegionContent, "Y", conditionSearchRegionY);
-        addFormRow(searchRegionContent, "Width", conditionSearchRegionWidth);
-        addFormRow(searchRegionContent, "Height", conditionSearchRegionHeight);
-        section.getChildren().add(titledPane("Search Region", searchRegionContent));
-
-        detachFromParent(drawConditionSearchRegion);
-        section.getChildren().add(drawConditionSearchRegion);
-        var addCondition = button("Add Condition", () -> runUiSafe(() -> {
-            var newIndex = conditions(groupIndex).size();
-            viewModel.addCondition(groupIndex, new pl.sk.ocr.config.dto.ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
-            pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + newIndex;
-            refreshAll();
-        }));
-        var moveUp = button("Move Up", () -> runUiSafe(() -> {
-            if (conditionIndex > 0) {
-                viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex - 1);
-                pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + (conditionIndex - 1);
-                refreshAll();
-            }
-        }));
-        var moveDown = button("Move Down", () -> runUiSafe(() -> {
-            var conditions = conditions(groupIndex);
-            if (conditionIndex < conditions.size() - 1) {
-                viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex + 1);
-                pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + (conditionIndex + 1);
-                refreshAll();
-            }
-        }));
-        var remove = button("Remove Condition", () -> runUiSafe(() -> {
-            viewModel.removeCondition(groupIndex, conditionIndex);
-            pendingTreeSelectionId = "identification.group." + groupIndex;
-            refreshAll();
-        }));
-        moveUp.setDisable(conditionIndex <= 0);
-        moveDown.setDisable(conditionIndex >= conditions(groupIndex).size() - 1);
-        section.getChildren().add(new HBox(8, addCondition, moveUp, moveDown, remove));
-    }
-
-    private VBox anchorsDetailsForm() {
-        var section = section("Anchors");
-        var selected = selectedTreeNode();
-        if (selected != null && selected.type() == TreeNodeType.ANCHOR) {
-            anchorControls(section, selected.index());
-        } else {
-            addFormRow(section, "Anchors", anchorsCount);
-            detachFromParent(addAnchor);
-            section.getChildren().add(addAnchor);
-        }
-        return new VBox(10, section, detailsInfo);
-    }
-
-    private void anchorControls(VBox section, int anchorIndex) {
-        var anchorContent = new VBox(8);
-        addFormRow(anchorContent, "ID", anchorId);
-        addFormRow(anchorContent, "Page", anchorPage);
-        addFormRow(anchorContent, "Detector ID", anchorDetectorId);
-        addFormRow(anchorContent, "Required", anchorRequired);
-        section.getChildren().add(titledPane("Anchor", anchorContent));
-
-        var searchRegionContent = new VBox(8);
-        addFormRow(searchRegionContent, "X", anchorSearchRegionX);
-        addFormRow(searchRegionContent, "Y", anchorSearchRegionY);
-        addFormRow(searchRegionContent, "Width", anchorSearchRegionWidth);
-        addFormRow(searchRegionContent, "Height", anchorSearchRegionHeight);
-        detachFromParent(drawAnchorSearchRegion);
-        searchRegionContent.getChildren().add(drawAnchorSearchRegion);
-        section.getChildren().add(titledPane("Search Region", searchRegionContent));
-
-        var referenceContent = new VBox(8);
-        addFormRow(referenceContent, "X", anchorReferenceBoundsX);
-        addFormRow(referenceContent, "Y", anchorReferenceBoundsY);
-        addFormRow(referenceContent, "Width", anchorReferenceBoundsWidth);
-        addFormRow(referenceContent, "Height", anchorReferenceBoundsHeight);
-        detachFromParent(drawAnchorReferenceBounds);
-        referenceContent.getChildren().add(drawAnchorReferenceBounds);
-        section.getChildren().add(titledPane("Reference Feature", referenceContent));
-
-        var add = button("Add Anchor", this::addAnchor);
-        var moveUp = button("Move Up", () -> runUiSafe(() -> {
-            if (anchorIndex > 0) {
-                viewModel.moveAnchor(anchorIndex, anchorIndex - 1);
-                pendingTreeSelectionId = "anchor." + (anchorIndex - 1);
-                refreshAll();
-            }
-        }));
-        var moveDown = button("Move Down", () -> runUiSafe(() -> {
-            var anchors = anchors();
-            if (anchorIndex < anchors.size() - 1) {
-                viewModel.moveAnchor(anchorIndex, anchorIndex + 1);
-                pendingTreeSelectionId = "anchor." + (anchorIndex + 1);
-                refreshAll();
-            }
-        }));
-        var remove = button("Remove Anchor", () -> runUiSafe(() -> {
-            viewModel.removeAnchor(anchorIndex);
-            pendingTreeSelectionId = "anchors";
-            refreshAll();
-        }));
-        moveUp.setDisable(anchorIndex <= 0);
-        moveDown.setDisable(anchorIndex >= anchors().size() - 1);
-        section.getChildren().add(new HBox(8, add, moveUp, moveDown, remove));
+    private javafx.scene.Node anchorsDetailsForm() {
+        return anchorPropertiesPanel.view();
     }
 
     private javafx.scene.Node geometryDetailsForm() {
@@ -1314,66 +1024,11 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void applySelectedCondition() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.replaceCondition(selected.index(), selected.childIndex(), new pl.sk.ocr.config.dto.ConditionDto(
-                nullToDefault(conditionType.getValue(), "TEXT"),
-                parseInteger(conditionPage.getText()),
-                blankToNull(conditionExpectedText.getText()),
-                extensionRef(conditionMatcherId.getText()),
-                extensionRef(conditionDetectorId.getText()),
-                conditionSearchRegion()
-            ));
-            refreshAfterDraftEdit();
-        });
-    }
-
-    private void addAnchor() {
-        if (viewModel.draft() == null) {
-            return;
-        }
-        runUiSafe(() -> {
-            var index = anchors().size();
-            var id = uniqueAnchorId(index + 1);
-            viewModel.addAnchor(new pl.sk.ocr.config.dto.AnchorDto(
-                id,
-                viewModel.session().currentPage(),
-                extensionRef("text"),
-                true,
-                null,
-                null
-            ));
-            pendingTreeSelectionId = "anchor." + index;
-            refreshAll();
-        });
+        identificationPropertiesPanel.commit();
     }
 
     private void applySelectedAnchor() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
-            return;
-        }
-        runUiSafe(() -> {
-            viewModel.replaceAnchor(selected.index(), new pl.sk.ocr.config.dto.AnchorDto(
-                blankToNull(anchorId.getText()),
-                parseInteger(anchorPage.getText()),
-                extensionRef(anchorDetectorId.getText()),
-                anchorRequired.isSelected(),
-                anchorReferenceFeature(),
-                anchorSearchRegion()
-            ));
-            pendingTreeSelectionId = "anchor." + selected.index();
-            refreshAfterDraftEdit();
-        });
+        anchorPropertiesPanel.commit();
     }
 
     private void activateFieldRegionDrawing() {
@@ -1431,60 +1086,15 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void updateSelectedConditionRegionFromViewer(RegionDto region, boolean commit) {
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
-            return;
-        }
-        refreshingDetails = true;
-        try {
-            setRegionSpinnerText(conditionSearchRegionX, formatRegionNumber(region.x()));
-            setRegionSpinnerText(conditionSearchRegionY, formatRegionNumber(region.y()));
-            setRegionSpinnerText(conditionSearchRegionWidth, formatRegionNumber(region.width()));
-            setRegionSpinnerText(conditionSearchRegionHeight, formatRegionNumber(region.height()));
-        } finally {
-            refreshingDetails = false;
-        }
-        if (commit) {
-            applySelectedCondition();
-        }
+        identificationPropertiesPanel.updateConditionSearchRegionFromViewer(region, commit);
     }
 
     private void updateSelectedAnchorReferenceBoundsFromViewer(RegionDto region, boolean commit) {
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
-            return;
-        }
-        refreshingDetails = true;
-        try {
-            setRegionSpinnerText(anchorReferenceBoundsX, formatRegionNumber(region.x()));
-            setRegionSpinnerText(anchorReferenceBoundsY, formatRegionNumber(region.y()));
-            setRegionSpinnerText(anchorReferenceBoundsWidth, formatRegionNumber(region.width()));
-            setRegionSpinnerText(anchorReferenceBoundsHeight, formatRegionNumber(region.height()));
-        } finally {
-            refreshingDetails = false;
-        }
-        if (commit) {
-            applySelectedAnchor();
-        }
+        anchorPropertiesPanel.updateReferenceBoundsFromViewer(region, commit);
     }
 
     private void updateSelectedAnchorSearchRegionFromViewer(RegionDto region, boolean commit) {
-        var selected = selectedTreeNode();
-        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
-            return;
-        }
-        refreshingDetails = true;
-        try {
-            setRegionSpinnerText(anchorSearchRegionX, formatRegionNumber(region.x()));
-            setRegionSpinnerText(anchorSearchRegionY, formatRegionNumber(region.y()));
-            setRegionSpinnerText(anchorSearchRegionWidth, formatRegionNumber(region.width()));
-            setRegionSpinnerText(anchorSearchRegionHeight, formatRegionNumber(region.height()));
-        } finally {
-            refreshingDetails = false;
-        }
-        if (commit) {
-            applySelectedAnchor();
-        }
+        anchorPropertiesPanel.updateSearchRegionFromViewer(region, commit);
     }
 
     private void updateSelectedEditableRegionFromViewer(RegionTargetType targetType, RegionDto region, boolean commit) {
@@ -1509,41 +1119,11 @@ public final class ConfiguratorApplication extends Application {
             if (regionEditTarget.type() == RegionTargetType.FIELD_REGION) {
                 viewModel.updateFieldRegion(regionEditTarget.index(), region);
             } else if (regionEditTarget.type() == RegionTargetType.CONDITION_SEARCH_REGION) {
-                var current = condition(regionEditTarget.index(), regionEditTarget.childIndex());
-                if (current != null) {
-                    viewModel.replaceCondition(regionEditTarget.index(), regionEditTarget.childIndex(), new pl.sk.ocr.config.dto.ConditionDto(
-                        current.type(),
-                        current.page(),
-                        current.expectedText(),
-                        current.matcher(),
-                        current.detector(),
-                        region
-                    ));
-                }
+                identificationPropertiesPanel.replaceConditionSearchRegion(regionEditTarget.index(), regionEditTarget.childIndex(), region);
             } else if (regionEditTarget.type() == RegionTargetType.ANCHOR_SEARCH_REGION) {
-                var current = anchor(regionEditTarget.index());
-                if (current != null) {
-                    viewModel.replaceAnchor(regionEditTarget.index(), new pl.sk.ocr.config.dto.AnchorDto(
-                        current.id(),
-                        current.page(),
-                        current.detector(),
-                        current.required(),
-                        current.referenceFeature(),
-                        region
-                    ));
-                }
+                anchorPropertiesPanel.replaceSearchRegion(regionEditTarget.index(), region);
             } else if (regionEditTarget.type() == RegionTargetType.ANCHOR_REFERENCE_BOUNDS) {
-                var current = anchor(regionEditTarget.index());
-                if (current != null) {
-                    viewModel.replaceAnchor(regionEditTarget.index(), new pl.sk.ocr.config.dto.AnchorDto(
-                        current.id(),
-                        current.page(),
-                        current.detector(),
-                        current.required(),
-                        new ReferenceFeatureDto(region),
-                        current.searchRegion()
-                    ));
-                }
+                anchorPropertiesPanel.replaceReferenceBounds(regionEditTarget.index(), region);
             }
             regionEditTarget = null;
             setViewerMode(ViewerMode.SELECT);
@@ -1636,42 +1216,6 @@ public final class ConfiguratorApplication extends Application {
         return new pl.sk.ocr.domain.geometry.Region(region.x(), region.y(), region.width(), region.height());
     }
 
-    private RegionDto conditionSearchRegion() {
-        if (!hasCompleteConditionSearchRegion()) {
-            return null;
-        }
-        return new RegionDto(
-            parseInteger(conditionSearchRegionX.getEditor().getText()),
-            parseInteger(conditionSearchRegionY.getEditor().getText()),
-            parseInteger(conditionSearchRegionWidth.getEditor().getText()),
-            parseInteger(conditionSearchRegionHeight.getEditor().getText())
-        );
-    }
-
-    private boolean hasCompleteConditionSearchRegion() {
-        return blankToNull(conditionSearchRegionX.getEditor().getText()) != null
-            && blankToNull(conditionSearchRegionY.getEditor().getText()) != null
-            && blankToNull(conditionSearchRegionWidth.getEditor().getText()) != null
-            && blankToNull(conditionSearchRegionHeight.getEditor().getText()) != null;
-    }
-
-    private boolean hasValidConditionSearchRegion() {
-        try {
-            return conditionSearchRegion() != null;
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
-    private RegionDto anchorSearchRegion() {
-        return spinnerRegion(anchorSearchRegionX, anchorSearchRegionY, anchorSearchRegionWidth, anchorSearchRegionHeight);
-    }
-
-    private ReferenceFeatureDto anchorReferenceFeature() {
-        var bounds = spinnerRegion(anchorReferenceBoundsX, anchorReferenceBoundsY, anchorReferenceBoundsWidth, anchorReferenceBoundsHeight);
-        return bounds == null ? null : new ReferenceFeatureDto(bounds);
-    }
-
     private RegionDto spinnerRegion(Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width, Spinner<Integer> height) {
         if (blankToNull(x.getEditor().getText()) == null
             || blankToNull(y.getEditor().getText()) == null
@@ -1692,17 +1236,6 @@ public final class ConfiguratorApplication extends Application {
         if (blankToNull(value) != null) {
             spinner.getValueFactory().setValue(Integer.parseInt(value));
         }
-    }
-
-    private String uniqueAnchorId(int seed) {
-        var existing = anchors().stream().map(pl.sk.ocr.config.dto.AnchorDto::id).collect(java.util.stream.Collectors.toSet());
-        var candidate = "anchor-" + seed;
-        var suffix = seed;
-        while (existing.contains(candidate)) {
-            suffix++;
-            candidate = "anchor-" + suffix;
-        }
-        return candidate;
     }
 
     private ExtensionRefDto extensionRef(String id) {
@@ -1815,12 +1348,31 @@ public final class ConfiguratorApplication extends Application {
         return condition(selected.index(), selected.childIndex());
     }
 
+    private Selection identificationSelection() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() == TreeNodeType.IDENTIFICATION) {
+            return new Selection(SelectionType.ROOT, -1, -1);
+        }
+        if (selected.type() == TreeNodeType.IDENTIFICATION_GROUP) {
+            return new Selection(SelectionType.GROUP, selected.index(), -1);
+        }
+        if (selected.type() == TreeNodeType.CONDITION) {
+            return new Selection(SelectionType.CONDITION, selected.index(), selected.childIndex());
+        }
+        return new Selection(SelectionType.ROOT, -1, -1);
+    }
+
     private pl.sk.ocr.config.dto.AnchorDto selectedAnchor() {
         var selected = selectedTreeNode();
         if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
             return null;
         }
         return anchor(selected.index());
+    }
+
+    private int selectedAnchorIndex() {
+        var selected = selectedTreeNode();
+        return selected == null || selected.type() != TreeNodeType.ANCHOR ? -1 : selected.index();
     }
 
     private String selectedTreeNodeId() {

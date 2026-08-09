@@ -87,4 +87,18 @@ public final class FormControls {
         spinner.valueProperty().addListener((obs, old, value) -> action.run());
         spinner.getEditor().textProperty().addListener((obs, old, value) -> action.run());
     }
+
+    public static Spinner<Integer> regionSpinner() {
+        var spinner = new Spinner<Integer>(Integer.MIN_VALUE, Integer.MAX_VALUE, 0);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(110);
+        return spinner;
+    }
+
+    public static void setRegionSpinnerText(Spinner<Integer> spinner, String value) {
+        spinner.getEditor().setText(value);
+        if (value != null && !value.isBlank()) {
+            spinner.getValueFactory().setValue(Integer.parseInt(value.trim()));
+        }
+    }
 }
