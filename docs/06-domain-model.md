@@ -1260,7 +1260,9 @@ flowchart LR
 | Validator        | `nip` |
 | Validator        | `regon` |
 | Validator        | `dictionary` |
-| Validator        | `regex` |
+| Validator        | `regex-validator` |
+
+Uwaga implementacyjna: identyfikatory rozszerzeń są obecnie unikalne globalnie w `ExtensionRegistry`, dlatego matcher `regex` i validator regex nie mogą współdzielić tego samego `ExtensionId`.
 
 ## 86. ZXing a model domenowy
 

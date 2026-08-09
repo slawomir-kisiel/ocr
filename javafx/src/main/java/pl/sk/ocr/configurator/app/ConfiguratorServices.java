@@ -18,7 +18,7 @@ public record ConfiguratorServices(
     DraftValidationService validationService
 ) {
     public static ConfiguratorServices production() {
-        var registry = ServiceLoaderExtensionRegistryFactory.load();
+        var registry = ServiceLoaderExtensionRegistryFactory.load(ConfiguratorServices.class.getClassLoader());
         return new ConfiguratorServices(
             new JsonConfigurationMapper(),
             new PdfBoxDocumentReader(),

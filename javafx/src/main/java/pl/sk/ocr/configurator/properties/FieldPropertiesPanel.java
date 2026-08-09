@@ -204,12 +204,12 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         }
         var pipeline = selected.type() == SelectionType.PIPELINE_STEP ? selected.pipeline() : Pipeline.from(selected.type());
         var steps = pipeline.steps(field);
-        addFormRow(section, pipeline.title(), new Label(String.valueOf(steps.size())));
+        addFormRow(section, pipeline.title(), textLabel(String.valueOf(steps.size())));
         for (int i = 0; i < steps.size(); i++) {
             var stepIndex = i;
             var step = steps.get(i);
             var selectedStep = selected.type() == SelectionType.PIPELINE_STEP && selected.stepIndex() == stepIndex;
-            var label = new Label(step == null ? "" : nullToEmpty(step.id()));
+            var label = textLabel(step == null ? "" : nullToEmpty(step.id()));
             var choose = button("Choose", () -> choosePipelineStep(pipeline, selected.fieldIndex(), stepIndex, step == null ? null : step.id()));
             var moveUp = button("Move Up", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
             var moveDown = button("Move Down", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
@@ -224,6 +224,12 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             }
         }
         section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
+    }
+
+    private Label textLabel(String text) {
+        var label = new Label(text);
+        label.setStyle("-fx-text-fill: #111827;");
+        return label;
     }
 
     private FieldDto selectedField() {
