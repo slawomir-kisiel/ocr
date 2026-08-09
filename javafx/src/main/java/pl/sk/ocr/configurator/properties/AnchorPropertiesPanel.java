@@ -37,6 +37,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final Runnable activateReferenceBoundsDrawing;
     private final Function<String, Node> iconFactory;
     private final ExtensionPicker extensionPicker;
+    private final ExtensionParametersForm parametersForm;
     private final Label anchorsCount = new Label();
     private final Button addAnchor = new Button("Add Anchor");
     private final TextField anchorId = new TextField();
@@ -72,6 +73,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         this.activateReferenceBoundsDrawing = activateReferenceBoundsDrawing;
         this.iconFactory = iconFactory;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
+        this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
     }
 
@@ -200,6 +202,10 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addFormRow(anchorContent, "Detector ID", extensionInput(anchorDetectorId, pickDetector));
         addFormRow(anchorContent, "Required", anchorRequired);
         section.getChildren().add(titledPane("Anchor", anchorContent));
+        var anchor = anchor(anchorIndex);
+        if (anchor != null && anchor.detector() != null) {
+            section.getChildren().add(parametersForm.view(anchor.detector(), ref -> replaceDetector(anchorIndex, ref)));
+        }
 
         var searchRegionContent = new VBox(8);
         addFormRow(searchRegionContent, "X", searchRegionX);
@@ -268,6 +274,15 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         });
     }
 
+    private void replaceDetector(int anchorIndex, ExtensionRefDto detector) {
+        var current = anchor(anchorIndex);
+        if (current != null) {
+            viewModel.replaceAnchor(anchorIndex, new AnchorDto(current.id(), current.page(), detector,
+                current.required(), current.referenceFeature(), current.searchRegion()));
+            afterChange.run();
+        }
+    }
+
     private void addAnchor() {
         if (viewModel.draft() == null) {
             return;
@@ -284,8 +299,9 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
             return;
         }
         var index = selectedIndex.getAsInt();
+        var current = selectedAnchor();
         viewModel.replaceAnchor(index, new AnchorDto(blankToNull(anchorId.getText()), parseInteger(anchorPage.getText()),
-            extensionRef(anchorDetectorId.getText()), anchorRequired.isSelected(), referenceFeature(), searchRegion()));
+            extensionRef(anchorDetectorId.getText(), current == null ? null : current.detector()), anchorRequired.isSelected(), referenceFeature(), searchRegion()));
         pendingSelection.accept("anchor." + index);
         afterChange.run();
     }
@@ -331,8 +347,16 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     }
 
     private ExtensionRefDto extensionRef(String id) {
+        return extensionRef(id, null);
+    }
+
+    private ExtensionRefDto extensionRef(String id, ExtensionRefDto current) {
         var normalized = blankToNull(id);
-        return normalized == null ? null : new ExtensionRefDto(normalized, Map.of());
+        if (normalized == null) {
+            return null;
+        }
+        var parameters = current != null && normalized.equals(current.id()) && current.parameters() != null ? current.parameters() : Map.<String, Object>of();
+        return new ExtensionRefDto(normalized, parameters);
     }
 
     private String uniqueAnchorId(int seed) {

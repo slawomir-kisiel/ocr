@@ -34,6 +34,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final Runnable activateConditionSearchRegionDrawing;
     private final Function<String, Node> iconFactory;
     private final ExtensionPicker extensionPicker;
+    private final ExtensionParametersForm parametersForm;
     private final Label groupsCount = new Label();
     private final Button addGroup = new Button("Add Group");
     private final Button removeLastGroup = new Button("Remove Last Group");
@@ -66,6 +67,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         this.activateConditionSearchRegionDrawing = activateConditionSearchRegionDrawing;
         this.iconFactory = iconFactory;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
+        this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
     }
 
@@ -247,6 +249,14 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addFormRow(identificationContent, "Detector ID", extensionInput(conditionDetectorId, pickDetector));
         section.getChildren().add(titledPane("Identification", identificationContent));
 
+        var condition = condition(groupIndex, conditionIndex);
+        if (condition != null && condition.matcher() != null) {
+            section.getChildren().add(parametersForm.view(condition.matcher(), ref -> replaceConditionMatcher(groupIndex, conditionIndex, ref)));
+        }
+        if (condition != null && condition.detector() != null) {
+            section.getChildren().add(parametersForm.view(condition.detector(), ref -> replaceConditionDetector(groupIndex, conditionIndex, ref)));
+        }
+
         var searchRegionContent = new VBox(8);
         addFormRow(searchRegionContent, "X", searchRegionX);
         addFormRow(searchRegionContent, "Y", searchRegionY);
@@ -310,6 +320,24 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         });
     }
 
+    private void replaceConditionMatcher(int groupIndex, int conditionIndex, ExtensionRefDto matcher) {
+        var current = condition(groupIndex, conditionIndex);
+        if (current != null) {
+            viewModel.replaceCondition(groupIndex, conditionIndex, new ConditionDto(current.type(), current.page(),
+                current.expectedText(), matcher, current.detector(), current.searchRegion()));
+            afterChange.run();
+        }
+    }
+
+    private void replaceConditionDetector(int groupIndex, int conditionIndex, ExtensionRefDto detector) {
+        var current = condition(groupIndex, conditionIndex);
+        if (current != null) {
+            viewModel.replaceCondition(groupIndex, conditionIndex, new ConditionDto(current.type(), current.page(),
+                current.expectedText(), current.matcher(), detector, current.searchRegion()));
+            afterChange.run();
+        }
+    }
+
     private void applySelectedCondition() {
         var selected = selection.get();
         if (refreshing || viewModel.draft() == null || selected.type() != SelectionType.CONDITION) {
@@ -317,8 +345,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         }
         viewModel.replaceCondition(selected.groupIndex(), selected.conditionIndex(), new ConditionDto(
             nullToDefault(conditionType.getValue(), "TEXT"), parseInteger(conditionPage.getText()),
-            blankToNull(conditionExpectedText.getText()), extensionRef(conditionMatcherId.getText()),
-            extensionRef(conditionDetectorId.getText()), conditionSearchRegion()));
+            blankToNull(conditionExpectedText.getText()), extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()),
+            extensionRef(conditionDetectorId.getText(), selectedCondition() == null ? null : selectedCondition().detector()), conditionSearchRegion()));
         afterChange.run();
     }
 
@@ -353,9 +381,13 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         return conditionIndex < 0 || conditionIndex >= conditions.size() ? null : conditions.get(conditionIndex);
     }
 
-    private ExtensionRefDto extensionRef(String id) {
+    private ExtensionRefDto extensionRef(String id, ExtensionRefDto current) {
         var normalized = blankToNull(id);
-        return normalized == null ? null : new ExtensionRefDto(normalized, Map.of());
+        if (normalized == null) {
+            return null;
+        }
+        var parameters = current != null && normalized.equals(current.id()) && current.parameters() != null ? current.parameters() : Map.<String, Object>of();
+        return new ExtensionRefDto(normalized, parameters);
     }
 
     private Integer parseInteger(String value) {

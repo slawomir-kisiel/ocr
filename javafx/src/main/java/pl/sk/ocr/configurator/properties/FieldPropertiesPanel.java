@@ -34,6 +34,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private final Runnable activateRegionDrawing;
     private final Function<String, Node> iconFactory;
     private final ExtensionPicker extensionPicker;
+    private final ExtensionParametersForm parametersForm;
     private final Label fieldsCount = new Label();
     private final Button addField = new Button("Add Field");
     private final TextField fieldId = new TextField();
@@ -64,6 +65,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         this.activateRegionDrawing = activateRegionDrawing;
         this.iconFactory = iconFactory;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
+        this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
     }
 
@@ -217,6 +219,9 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             var row = new HBox(8, label, choose, moveUp, moveDown, remove);
             row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
             section.getChildren().add(row);
+            if (selectedStep && step != null) {
+                section.getChildren().add(parametersForm.view(step, ref -> replacePipelineStep(pipeline, selected.fieldIndex(), stepIndex, ref)));
+            }
         }
         section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
     }
@@ -291,6 +296,18 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             pendingSelection.accept(pipeline.nodeId(fieldIndex, stepIndex));
             refreshAll.run();
         });
+    }
+
+    private void replacePipelineStep(Pipeline pipeline, int fieldIndex, int stepIndex, ExtensionRefDto ref) {
+        var field = field(fieldIndex);
+        if (field == null) {
+            return;
+        }
+        var updated = new java.util.ArrayList<>(pipeline.steps(field));
+        updated.set(stepIndex, ref);
+        replacePipeline(fieldIndex, field, pipeline, updated);
+        pendingSelection.accept(pipeline.nodeId(fieldIndex, stepIndex));
+        afterChange.run();
     }
 
     private void movePipelineStep(Pipeline pipeline, int fieldIndex, int fromIndex, int toIndex) {
