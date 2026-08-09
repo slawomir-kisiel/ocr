@@ -49,6 +49,7 @@ final class DocumentViewerOverlay extends javafx.scene.layout.Pane {
 
     void setContentSize(double width, double height) {
         var padding = getPadding();
+        imageView.relocate(padding.getLeft(), padding.getTop());
         setMinSize(width + padding.getLeft() + padding.getRight(), height + padding.getTop() + padding.getBottom());
         setPrefSize(width + padding.getLeft() + padding.getRight(), height + padding.getTop() + padding.getBottom());
     }

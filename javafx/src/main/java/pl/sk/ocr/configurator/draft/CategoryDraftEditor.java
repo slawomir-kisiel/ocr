@@ -165,6 +165,10 @@ public final class CategoryDraftEditor {
         return updateFieldPipeline(draft, fieldIndex, Pipeline.IMAGE_PROCESSORS, steps -> move(steps, fromIndex, toIndex, "image processor"));
     }
 
+    public CategoryDto duplicateImageProcessor(CategoryDto draft, int fieldIndex, int stepIndex) {
+        return updateFieldPipeline(draft, fieldIndex, Pipeline.IMAGE_PROCESSORS, steps -> duplicate(steps, stepIndex, "image processor"));
+    }
+
     public CategoryDto addTransformer(CategoryDto draft, int fieldIndex, ExtensionRefDto step) {
         return updateFieldPipeline(draft, fieldIndex, Pipeline.TRANSFORMERS, steps -> add(steps, requireNonNull(step, "transformer")));
     }
@@ -177,6 +181,10 @@ public final class CategoryDraftEditor {
         return updateFieldPipeline(draft, fieldIndex, Pipeline.TRANSFORMERS, steps -> move(steps, fromIndex, toIndex, "transformer"));
     }
 
+    public CategoryDto duplicateTransformer(CategoryDto draft, int fieldIndex, int stepIndex) {
+        return updateFieldPipeline(draft, fieldIndex, Pipeline.TRANSFORMERS, steps -> duplicate(steps, stepIndex, "transformer"));
+    }
+
     public CategoryDto addValidator(CategoryDto draft, int fieldIndex, ExtensionRefDto step) {
         return updateFieldPipeline(draft, fieldIndex, Pipeline.VALIDATORS, steps -> add(steps, requireNonNull(step, "validator")));
     }
@@ -187,6 +195,10 @@ public final class CategoryDraftEditor {
 
     public CategoryDto moveValidator(CategoryDto draft, int fieldIndex, int fromIndex, int toIndex) {
         return updateFieldPipeline(draft, fieldIndex, Pipeline.VALIDATORS, steps -> move(steps, fromIndex, toIndex, "validator"));
+    }
+
+    public CategoryDto duplicateValidator(CategoryDto draft, int fieldIndex, int stepIndex) {
+        return updateFieldPipeline(draft, fieldIndex, Pipeline.VALIDATORS, steps -> duplicate(steps, stepIndex, "validator"));
     }
 
     private CategoryDto updateGroup(CategoryDto draft, int groupIndex, Function<ConditionGroupDto, ConditionGroupDto> updater) {
@@ -281,6 +293,13 @@ public final class CategoryDraftEditor {
         }
         var value = copy.remove(fromIndex);
         copy.add(toIndex, value);
+        return List.copyOf(copy);
+    }
+
+    private static <T> List<T> duplicate(List<T> source, int index, String elementName) {
+        var copy = new ArrayList<>(list(source));
+        requireIndex(copy, index, elementName);
+        copy.add(index + 1, copy.get(index));
         return List.copyOf(copy);
     }
 

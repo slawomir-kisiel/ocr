@@ -85,6 +85,23 @@ class CategoryDraftEditorTest {
     }
 
     @Test
+    void duplicatesPipelineStepAfterSourceAndKeepsParameters() {
+        var draft = editor.addField(editor.newCategory("invoice", "Invoice"), field("number"));
+        var transformer = new ExtensionRefDto("substring", Map.of("start", 2, "length", 5));
+
+        draft = editor.addTransformer(draft, 0, transformer);
+        draft = editor.addTransformer(draft, 0, extension("trim"));
+        draft = editor.duplicateTransformer(draft, 0, 0);
+
+        assertThat(draft.fields().get(0).transformers())
+            .extracting(ExtensionRefDto::id)
+            .containsExactly("substring", "substring", "trim");
+        assertThat(draft.fields().get(0).transformers().get(1).parameters())
+            .containsEntry("start", 2)
+            .containsEntry("length", 5);
+    }
+
+    @Test
     void invalidIndexThrowsClearException() {
         var draft = editor.newCategory("invoice", "Invoice");
 

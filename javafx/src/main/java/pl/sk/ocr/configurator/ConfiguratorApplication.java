@@ -101,6 +101,7 @@ public final class ConfiguratorApplication extends Application {
             new ConfigurationFileService(services.mapper()),
             new OpenReferenceDocumentUseCase(services.documentReader()),
             new RunPageOcrUseCase(services.ocrEngine()),
+            services.previewField(),
             services.validationService(),
             services.backgroundExecutor()
         );

@@ -110,7 +110,9 @@ public final class FieldPropertiesPanel implements DetailsPanel {
 
     @Override
     public void commit() {
-        applySelectedField();
+        if (selection.get().type() == SelectionType.FIELD) {
+            applySelectedField();
+        }
     }
 
     public void replaceFieldRegion(int index, RegionDto region) {
@@ -211,12 +213,13 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             var selectedStep = selected.type() == SelectionType.PIPELINE_STEP && selected.stepIndex() == stepIndex;
             var label = textLabel(step == null ? "" : nullToEmpty(step.id()));
             var choose = button("Choose", () -> choosePipelineStep(pipeline, selected.fieldIndex(), stepIndex, step == null ? null : step.id()));
+            var duplicate = button("Duplicate", () -> duplicatePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
             var moveUp = button("Move Up", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
             var moveDown = button("Move Down", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
             var remove = button("Remove", () -> removePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
             moveUp.setDisable(stepIndex <= 0);
             moveDown.setDisable(stepIndex >= steps.size() - 1);
-            var row = new HBox(8, label, choose, moveUp, moveDown, remove);
+            var row = new HBox(8, label, choose, duplicate, moveUp, moveDown, remove);
             row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
             section.getChildren().add(row);
             if (selectedStep && step != null) {
@@ -323,6 +326,16 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         }
         pipeline.move(viewModel, fieldIndex, fromIndex, toIndex);
         pendingSelection.accept(pipeline.nodeId(fieldIndex, toIndex));
+        refreshAll.run();
+    }
+
+    private void duplicatePipelineStep(Pipeline pipeline, int fieldIndex, int stepIndex) {
+        var field = field(fieldIndex);
+        if (field == null || stepIndex < 0 || stepIndex >= pipeline.steps(field).size()) {
+            return;
+        }
+        pipeline.duplicate(viewModel, fieldIndex, stepIndex);
+        pendingSelection.accept(pipeline.nodeId(fieldIndex, stepIndex + 1));
         refreshAll.run();
     }
 
@@ -507,6 +520,14 @@ public final class FieldPropertiesPanel implements DetailsPanel {
                 case IMAGE_PROCESSORS -> viewModel.moveImageProcessor(fieldIndex, fromIndex, toIndex);
                 case TRANSFORMERS -> viewModel.moveTransformer(fieldIndex, fromIndex, toIndex);
                 case VALIDATORS -> viewModel.moveValidator(fieldIndex, fromIndex, toIndex);
+            }
+        }
+
+        void duplicate(CategoryEditorViewModel viewModel, int fieldIndex, int stepIndex) {
+            switch (this) {
+                case IMAGE_PROCESSORS -> viewModel.duplicateImageProcessor(fieldIndex, stepIndex);
+                case TRANSFORMERS -> viewModel.duplicateTransformer(fieldIndex, stepIndex);
+                case VALIDATORS -> viewModel.duplicateValidator(fieldIndex, stepIndex);
             }
         }
 

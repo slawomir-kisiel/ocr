@@ -7,6 +7,7 @@ import pl.sk.ocr.configurator.async.ExecutorBackgroundExecutor;
 import pl.sk.ocr.configurator.validation.DraftValidationService;
 import pl.sk.ocr.core.document.DocumentReader;
 import pl.sk.ocr.core.ocr.OcrEngine;
+import pl.sk.ocr.core.processing.FieldProcessingService;
 import pl.sk.ocr.extension.api.ServiceLoaderExtensionRegistryFactory;
 
 public record ConfiguratorServices(
@@ -15,17 +16,20 @@ public record ConfiguratorServices(
     OcrEngine ocrEngine,
     pl.sk.ocr.extension.api.ExtensionRegistry extensionRegistry,
     ExecutorBackgroundExecutor backgroundExecutor,
-    DraftValidationService validationService
+    DraftValidationService validationService,
+    PreviewFieldUseCase previewField
 ) {
     public static ConfiguratorServices production() {
         var registry = ServiceLoaderExtensionRegistryFactory.load(ConfiguratorServices.class.getClassLoader());
+        var ocrEngine = new Tess4jOcrEngine();
         return new ConfiguratorServices(
             new JsonConfigurationMapper(),
             new PdfBoxDocumentReader(),
-            new Tess4jOcrEngine(),
+            ocrEngine,
             registry,
             new ExecutorBackgroundExecutor(),
-            new DraftValidationService(registry)
+            new DraftValidationService(registry),
+            new PreviewFieldUseCase(new FieldProcessingService(ocrEngine, registry))
         );
     }
 }

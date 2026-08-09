@@ -948,6 +948,52 @@ Kryteria akceptacji:
 - `Cancel` przerywa akcję,
 - zapis błędnego draftu jest dozwolony.
 
+### FX-123 Profile Workspace UX
+
+Dodać tryb pracy w kontekście profilu jako głównego artefaktu edycji UI.
+
+Cel:
+
+- użytkownik pracuje nad profilem zawierającym wiele kategorii,
+- zapisany wynik może zostać bezpośrednio wykorzystany przez CLI,
+- kategoria może mieć przypisane lokalne dokumenty wzorcowe używane przez Configurator.
+
+Zakres:
+
+- otwieranie i zapis pliku profilu jako podstawowej operacji aplikacji,
+- prezentacja listy kategorii profilu ponad drzewem kategorii jako select-list,
+- przyciski obok listy kategorii: `Nowa`, `Otwórz`, `Usuń`,
+- `Usuń` usuwa kategorie z profilu dopiero po potwierdzeniu,
+- wybór kategorii przełącza drzewo i panel properties na jej konfiguracje,
+- dodanie kategorii do profilu tworzy albo podpina category configuration zgodnie z modelem profilu,
+- usuniecie kategorii z profilu nie usuwa fizycznego pliku kategorii bez osobnej jawnej decyzji UX,
+- z górnego menu znikają akcje `New Category` i `Open Configuration` jako główne wejścia pracy,
+- menu górne dostaje akcje profilu, np. `New Profile`, `Open Profile`, `Save Profile`, `Save Profile As`,
+- kategoria przechowuje albo wskazuje lokalizacje aktualnie wybranego dokumentu wzorcowego,
+- po wczytaniu kategorii Configurator probuje automatycznie otworzyc przypisany dokument wzorcowy, jeśli plik jest lokalnie dostepny,
+- brak lokalnego dokumentu wzorcowego nie blokuje edycji kategorii i jest pokazywany jako czytelny status/ostrzeżenie,
+- przewidzieć wiecej niż jeden dokument wzorcowy dla kategorii,
+- wybor dokumentu wzorcowego odbywa sie z paska dokumentów w stylu zakładek nad podgladem dokumentu,
+- zakładki dokumentów są przewijane poziomo jak w przeglądarce albo Adobe Acrobat Reader,
+- aktualna paginacja stron zostaje przeniesiona z dołu panelu podglądu na góre,
+- pasek górny podglądu zawiera po lewej zakładki dokumentów, a po prawej nawigacje stron aktywnego dokumentu,
+- zmiana aktywnego dokumentu wzorcowego czysci albo przelacza cache stron/OCR dla tego dokumentu bez mieszania wynikow,
+- wybor kategorii przywraca ostatni aktywny dokument wzorcowy tej kategorii, jeśli jest dostepny,
+- unsaved changes guard obejmuje zmiane profilu, zmiane kategorii i usuniecie kategorii z profilu,
+- recent files i last directories zostaja rozdzielone dla profili, kategorii i dokumentów wzorcowych.
+
+Kryteria akceptacji:
+
+- użtkownik może utworzyć/otworzyć profil i zarządzać kategoriami bez ręcznej edycji JSON,
+- zapisany profil jest zgodny z formatem akceptowanym przez CLI,
+- po ponownym otwarciu profilu lista kategorii i przypisane dokumenty wzorcowe są odtwarzane,
+- jeśli dokument wzorcowy istnieje lokalnie, jest otwierany automatycznie po wyborze kategorii,
+- jeśli dokument wzorcowy nie istnieje lokalnie, UI pokazuje status i pozwala wskazać nową lokalizację,
+- drzewo kategorii zawsze pokazuje konfigurację aktualnie wybranej kategorii profilu,
+- zmiana dokumentu wzorcowego nie miesza cache OCR ani overlay z innym dokumentem,
+- paginacja stron działa dla aktywnej zakładki dokumentu,
+- usunięcie kategorii wymaga potwierdzenia i po usunięciu zaznaczana jest sensowna nastepna kategoria albo pusty stan profilu.
+
 ## 18. P1 - Packaging i Uruchamianie
 
 ### FX-130 Packaging Configurator
@@ -1093,7 +1139,8 @@ Rekomendowana kolejność prac:
 22. `FX-120A Recent Files Split Buttons`
 23. `FX-120B Last File Chooser Directories`
 24. `FX-122 Unsaved Changes Guard`
-25. `FX-130 Packaging Configurator`
+25. `FX-123 Profile Workspace UX`
+26. `FX-130 Packaging Configurator`
 
 ## 22. Kryteria Ukończenia Całości UI
 
@@ -1117,7 +1164,8 @@ Aplikacja UI JavaFX realizuje zaprojektowane funkcjonalności, gdy użytkownik m
 16. ponownie otworzyć zapisany JSON,
 17. wyeksportować diagnostykę,
 18. wykonać ciężkie operacje bez blokowania UI,
-19. uruchomić konfigurację zapisaną przez UI w CLI.
+19. pracowac w kontekscie profilu zawierajacego wiele kategorii,
+20. uruchomić konfigurację zapisaną przez UI w CLI.
 
 ## 23. Znane Ryzyka
 
