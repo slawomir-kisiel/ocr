@@ -117,8 +117,11 @@ public final class ConfiguratorApplication extends Application {
     private final Label fieldsCount = new Label();
     private final TextField geometryReferenceWidth = new TextField();
     private final TextField geometryReferenceHeight = new TextField();
-    private final TextField geometryStrategyType = new TextField();
+    private final ComboBox<String> geometryStrategyType = new ComboBox<>();
     private final TextField geometryStrategyAnchors = new TextField();
+    private final VBox geometryAnchorOptions = new VBox(4);
+    private final Button useDocumentDimensions = new Button("Use Document Dimensions");
+    private final Label geometryWarning = new Label();
     private final TextField fieldRegionX = new TextField();
     private final TextField fieldRegionY = new TextField();
     private final TextField fieldRegionWidth = new TextField();
@@ -850,7 +853,7 @@ public final class ConfiguratorApplication extends Application {
         geometryReferenceWidth.setText(geometry == null || geometry.referenceWidth() == null ? "" : geometry.referenceWidth().toString());
         geometryReferenceHeight.setText(geometry == null || geometry.referenceHeight() == null ? "" : geometry.referenceHeight().toString());
         var strategy = geometry == null ? null : geometry.strategy();
-        geometryStrategyType.setText(strategy == null ? "" : nullToEmpty(strategy.type()));
+        geometryStrategyType.setValue(strategy == null || strategy.type() == null ? "NONE" : strategy.type());
         geometryStrategyAnchors.setText(strategy == null || strategy.anchors() == null
             ? ""
             : String.join(", ", strategy.anchors()));
@@ -876,10 +879,18 @@ public final class ConfiguratorApplication extends Application {
         pageTypeRange.setUserData(PAGE_TYPE_RANGE);
         pageTypeList.setUserData(PAGE_TYPE_LIST);
         pageTypeAll.setUserData(PAGE_TYPE_ALL);
+        pageTypeSingle.setStyle("-fx-text-fill: #111827;");
+        pageTypeRange.setStyle("-fx-text-fill: #111827;");
+        pageTypeList.setStyle("-fx-text-fill: #111827;");
+        pageTypeAll.setStyle("-fx-text-fill: #111827;");
         pageTypeSingle.setSelected(true);
         categoryDescription.setPrefRowCount(3);
         categoryDescription.setWrapText(true);
         detailsInfo.setWrapText(true);
+        detailsInfo.setStyle("-fx-text-fill: #111827;");
+        identificationGroupsCount.setStyle("-fx-text-fill: #111827;");
+        anchorsCount.setStyle("-fx-text-fill: #111827;");
+        fieldsCount.setStyle("-fx-text-fill: #111827;");
         installTooltip(categoryId, "Unique category identifier written to category JSON.");
         installTooltip(categoryDisplayName, "Human-readable category name shown in UI and diagnostics.");
         installTooltip(categoryDescription, "Optional category description.");
@@ -961,6 +972,11 @@ public final class ConfiguratorApplication extends Application {
         installTooltip(geometryReferenceHeight, "Reference document height used by geometry normalization.");
         installTooltip(geometryStrategyType, "Geometry strategy type, for example NONE.");
         installTooltip(geometryStrategyAnchors, "Comma-separated anchor IDs used by geometry strategy.");
+        installTooltip(useDocumentDimensions, "Copy current document page dimensions to reference width and height.");
+        geometryStrategyType.getItems().setAll("NONE", "ANCHOR_TRANSLATION");
+        geometryStrategyType.setEditable(true);
+        geometryWarning.setWrapText(true);
+        geometryWarning.setStyle("-fx-text-fill: #92400e;");
         installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
         installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
         installTooltip(fieldRegionWidth, "Field region width in image/reference coordinates.");
@@ -989,8 +1005,9 @@ public final class ConfiguratorApplication extends Application {
         }));
         addDraftListener(geometryReferenceWidth, this::applyGeometry);
         addDraftListener(geometryReferenceHeight, this::applyGeometry);
-        addDraftListener(geometryStrategyType, this::applyGeometry);
+        geometryStrategyType.valueProperty().addListener((obs, old, value) -> applyGeometry());
         addDraftListener(geometryStrategyAnchors, this::applyGeometry);
+        useDocumentDimensions.setOnAction(event -> useCurrentDocumentDimensions());
         conditionType.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
         addDraftListener(conditionPage, this::applySelectedCondition);
         addDraftListener(conditionExpectedText, this::applySelectedCondition);
@@ -1224,10 +1241,26 @@ public final class ConfiguratorApplication extends Application {
 
     private VBox geometryDetailsForm() {
         var section = section("Geometry");
-        addFormRow(section, "Reference Width", geometryReferenceWidth);
-        addFormRow(section, "Reference Height", geometryReferenceHeight);
-        addFormRow(section, "Strategy Type", geometryStrategyType);
-        addFormRow(section, "Strategy Anchors", geometryStrategyAnchors);
+        var dimensions = new VBox(8);
+        addFormRow(dimensions, "Reference Width", geometryReferenceWidth);
+        addFormRow(dimensions, "Reference Height", geometryReferenceHeight);
+        detachFromParent(useDocumentDimensions);
+        dimensions.getChildren().add(useDocumentDimensions);
+        updateGeometryWarning();
+        detachFromParent(geometryWarning);
+        dimensions.getChildren().add(geometryWarning);
+        section.getChildren().add(titledPane("Reference Dimensions", dimensions));
+
+        var strategy = new VBox(8);
+        addFormRow(strategy, "Strategy Type", geometryStrategyType);
+        section.getChildren().add(titledPane("Strategy", strategy));
+
+        var anchors = new VBox(8);
+        rebuildGeometryAnchorOptions();
+        detachFromParent(geometryAnchorOptions);
+        anchors.getChildren().add(geometryAnchorOptions);
+        addFormRow(anchors, "Anchor IDs", geometryStrategyAnchors);
+        section.getChildren().add(titledPane("Geometry Anchors", anchors));
         return new VBox(10, section, detailsInfo);
     }
 
@@ -1292,6 +1325,9 @@ public final class ConfiguratorApplication extends Application {
             label.setTooltip(fxControl.getTooltip());
             fxControl.setMaxWidth(Double.MAX_VALUE);
         }
+        if (control instanceof Label valueLabel) {
+            valueLabel.setStyle("-fx-text-fill: #111827;");
+        }
         label.setMaxWidth(Double.MAX_VALUE);
         label.setStyle("-fx-text-fill: #111827;");
         field.setSpacing(2);
@@ -1331,6 +1367,78 @@ public final class ConfiguratorApplication extends Application {
     private void addSpinnerListener(Spinner<Integer> spinner, Runnable action) {
         spinner.valueProperty().addListener((obs, old, value) -> action.run());
         spinner.getEditor().textProperty().addListener((obs, old, value) -> action.run());
+    }
+
+    private void rebuildGeometryAnchorOptions() {
+        geometryAnchorOptions.getChildren().clear();
+        var selectedIds = new HashSet<>(parseStringList(geometryStrategyAnchors.getText()));
+        if (anchors().isEmpty()) {
+            var empty = new Label("No anchors configured.");
+            empty.setStyle("-fx-text-fill: #111827;");
+            geometryAnchorOptions.getChildren().add(empty);
+            return;
+        }
+        for (var anchor : anchors()) {
+            var id = blankToNull(anchor.id());
+            if (id == null) {
+                continue;
+            }
+            var checkBox = new CheckBox(id);
+            checkBox.setSelected(selectedIds.contains(id));
+            checkBox.setTooltip(new Tooltip("Use anchor '" + id + "' in geometry strategy."));
+            checkBox.setStyle("-fx-text-fill: #111827;");
+            checkBox.selectedProperty().addListener((obs, old, value) -> updateGeometryAnchorsFromChecks());
+            geometryAnchorOptions.getChildren().add(checkBox);
+        }
+    }
+
+    private void updateGeometryAnchorsFromChecks() {
+        if (refreshingDetails) {
+            return;
+        }
+        var selected = geometryAnchorOptions.getChildren().stream()
+            .filter(CheckBox.class::isInstance)
+            .map(CheckBox.class::cast)
+            .filter(CheckBox::isSelected)
+            .map(CheckBox::getText)
+            .toList();
+        refreshingDetails = true;
+        try {
+            geometryStrategyAnchors.setText(String.join(", ", selected));
+        } finally {
+            refreshingDetails = false;
+        }
+        applyGeometry();
+    }
+
+    private void useCurrentDocumentDimensions() {
+        var image = pageImage.getImage();
+        if (image == null) {
+            status.setText("Open a document before copying reference dimensions");
+            return;
+        }
+        refreshingDetails = true;
+        try {
+            geometryReferenceWidth.setText(formatRegionNumber(image.getWidth()));
+            geometryReferenceHeight.setText(formatRegionNumber(image.getHeight()));
+        } finally {
+            refreshingDetails = false;
+        }
+        applyGeometry();
+    }
+
+    private void updateGeometryWarning() {
+        var visible = hasConfiguredRegions();
+        geometryWarning.setText(visible
+            ? "Changing reference dimensions after defining regions may require adjusting anchors and field regions."
+            : "");
+        setVisibleManaged(geometryWarning, visible);
+    }
+
+    private boolean hasConfiguredRegions() {
+        return anchors().stream().anyMatch(anchor -> anchor.searchRegion() != null
+            || anchor.referenceFeature() != null && anchor.referenceFeature().bounds() != null)
+            || fields().stream().anyMatch(field -> field.region() != null);
     }
 
     private void applyCategoryMetadata() {
@@ -1376,12 +1484,21 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         runUiSafe(() -> {
+            var current = viewModel.draft().geometry();
+            var newWidth = parseInteger(geometryReferenceWidth.getText());
+            var newHeight = parseInteger(geometryReferenceHeight.getText());
+            var dimensionsChanged = current != null
+                && (!java.util.Objects.equals(current.referenceWidth(), newWidth)
+                    || !java.util.Objects.equals(current.referenceHeight(), newHeight));
             viewModel.updateGeometry(new GeometryDto(
-                parseInteger(geometryReferenceWidth.getText()),
-                parseInteger(geometryReferenceHeight.getText()),
-                new GeometryStrategyDto(blankToNull(geometryStrategyType.getText()), parseStringList(geometryStrategyAnchors.getText()))
+                newWidth,
+                newHeight,
+                new GeometryStrategyDto(nullToDefault(geometryStrategyType.getValue(), "NONE"), parseStringList(geometryStrategyAnchors.getText()))
             ));
             refreshAfterDraftEdit();
+            if (dimensionsChanged && hasConfiguredRegions()) {
+                status.setText("Reference dimensions changed; existing regions may need adjustment");
+            }
         });
     }
 
@@ -1853,11 +1970,15 @@ public final class ConfiguratorApplication extends Application {
 
     private pl.sk.ocr.config.dto.FieldDto selectedField() {
         var selected = selectedTreeNode();
-        var fields = viewModel.draft() == null || viewModel.draft().fields() == null ? List.<pl.sk.ocr.config.dto.FieldDto>of() : viewModel.draft().fields();
+        var fields = fields();
         if (selected == null || selected.type() != TreeNodeType.FIELD || selected.index() < 0 || selected.index() >= fields.size()) {
             return null;
         }
         return fields.get(selected.index());
+    }
+
+    private List<pl.sk.ocr.config.dto.FieldDto> fields() {
+        return viewModel.draft() == null || viewModel.draft().fields() == null ? List.of() : viewModel.draft().fields();
     }
 
     private List<ConditionGroupDto> identificationGroups() {
