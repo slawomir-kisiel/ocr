@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import static pl.sk.ocr.configurator.ui.FormControls.*;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
@@ -43,6 +44,7 @@ import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
+import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
 import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
 import pl.sk.ocr.configurator.viewer.ViewerPoint;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
@@ -115,13 +117,6 @@ public final class ConfiguratorApplication extends Application {
     private final Button drawAnchorSearchRegion = new Button();
     private final Button drawAnchorReferenceBounds = new Button();
     private final Label fieldsCount = new Label();
-    private final TextField geometryReferenceWidth = new TextField();
-    private final TextField geometryReferenceHeight = new TextField();
-    private final ComboBox<String> geometryStrategyType = new ComboBox<>();
-    private final TextField geometryStrategyAnchors = new TextField();
-    private final VBox geometryAnchorOptions = new VBox(4);
-    private final Button useDocumentDimensions = new Button("Use Document Dimensions");
-    private final Label geometryWarning = new Label();
     private final TextField fieldRegionX = new TextField();
     private final TextField fieldRegionY = new TextField();
     private final TextField fieldRegionWidth = new TextField();
@@ -142,6 +137,7 @@ public final class ConfiguratorApplication extends Application {
     private ViewerMode viewerMode = ViewerMode.SELECT;
     private RegionEditTarget regionEditTarget;
     private String pendingTreeSelectionId;
+    private GeometryPropertiesPanel geometryPropertiesPanel;
 
     public static void main(String[] args) {
         launch(args);
@@ -157,6 +153,7 @@ public final class ConfiguratorApplication extends Application {
             services.validationService(),
             services.backgroundExecutor()
         );
+        geometryPropertiesPanel = new GeometryPropertiesPanel(viewModel, this::anchors, this::fields, pageImage::getImage, status, detailsInfo, this::refreshAfterDraftEdit);
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -849,14 +846,7 @@ public final class ConfiguratorApplication extends Application {
         setRegionSpinnerText(anchorReferenceBoundsWidth, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.width()));
         setRegionSpinnerText(anchorReferenceBoundsHeight, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.height()));
         fieldsCount.setText(String.valueOf(draft.fields() == null ? 0 : draft.fields().size()));
-        var geometry = draft.geometry();
-        geometryReferenceWidth.setText(geometry == null || geometry.referenceWidth() == null ? "" : geometry.referenceWidth().toString());
-        geometryReferenceHeight.setText(geometry == null || geometry.referenceHeight() == null ? "" : geometry.referenceHeight().toString());
-        var strategy = geometry == null ? null : geometry.strategy();
-        geometryStrategyType.setValue(strategy == null || strategy.type() == null ? "NONE" : strategy.type());
-        geometryStrategyAnchors.setText(strategy == null || strategy.anchors() == null
-            ? ""
-            : String.join(", ", strategy.anchors()));
+        geometryPropertiesPanel.refresh();
         var selectedField = selectedField();
         var selectedRegion = selectedField == null ? null : selectedField.region();
         fieldRegionX.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.x()));
@@ -968,15 +958,6 @@ public final class ConfiguratorApplication extends Application {
         drawAnchorReferenceBounds.setPrefSize(36, 32);
         drawAnchorReferenceBounds.setMaxSize(36, 32);
         installTooltip(fieldsCount, "Number of fields configured for extraction.");
-        installTooltip(geometryReferenceWidth, "Reference document width used by geometry normalization.");
-        installTooltip(geometryReferenceHeight, "Reference document height used by geometry normalization.");
-        installTooltip(geometryStrategyType, "Geometry strategy type, for example NONE.");
-        installTooltip(geometryStrategyAnchors, "Comma-separated anchor IDs used by geometry strategy.");
-        installTooltip(useDocumentDimensions, "Copy current document page dimensions to reference width and height.");
-        geometryStrategyType.getItems().setAll("NONE", "ANCHOR_TRANSLATION");
-        geometryStrategyType.setEditable(true);
-        geometryWarning.setWrapText(true);
-        geometryWarning.setStyle("-fx-text-fill: #92400e;");
         installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
         installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
         installTooltip(fieldRegionWidth, "Field region width in image/reference coordinates.");
@@ -1003,11 +984,6 @@ public final class ConfiguratorApplication extends Application {
                 refreshAll();
             }
         }));
-        addDraftListener(geometryReferenceWidth, this::applyGeometry);
-        addDraftListener(geometryReferenceHeight, this::applyGeometry);
-        geometryStrategyType.valueProperty().addListener((obs, old, value) -> applyGeometry());
-        addDraftListener(geometryStrategyAnchors, this::applyGeometry);
-        useDocumentDimensions.setOnAction(event -> useCurrentDocumentDimensions());
         conditionType.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
         addDraftListener(conditionPage, this::applySelectedCondition);
         addDraftListener(conditionExpectedText, this::applySelectedCondition);
@@ -1040,7 +1016,7 @@ public final class ConfiguratorApplication extends Application {
         drawFieldRegion.setOnAction(event -> activateFieldRegionDrawing());
     }
 
-    private VBox detailsFormForSelection() {
+    private javafx.scene.Node detailsFormForSelection() {
         return switch (selectedNodeType()) {
             case IDENTIFICATION, IDENTIFICATION_GROUP, CONDITION -> identificationDetailsForm();
             case ANCHORS, ANCHOR -> anchorsDetailsForm();
@@ -1239,29 +1215,8 @@ public final class ConfiguratorApplication extends Application {
         section.getChildren().add(new HBox(8, add, moveUp, moveDown, remove));
     }
 
-    private VBox geometryDetailsForm() {
-        var section = section("Geometry");
-        var dimensions = new VBox(8);
-        addFormRow(dimensions, "Reference Width", geometryReferenceWidth);
-        addFormRow(dimensions, "Reference Height", geometryReferenceHeight);
-        detachFromParent(useDocumentDimensions);
-        dimensions.getChildren().add(useDocumentDimensions);
-        updateGeometryWarning();
-        detachFromParent(geometryWarning);
-        dimensions.getChildren().add(geometryWarning);
-        section.getChildren().add(titledPane("Reference Dimensions", dimensions));
-
-        var strategy = new VBox(8);
-        addFormRow(strategy, "Strategy Type", geometryStrategyType);
-        section.getChildren().add(titledPane("Strategy", strategy));
-
-        var anchors = new VBox(8);
-        rebuildGeometryAnchorOptions();
-        detachFromParent(geometryAnchorOptions);
-        anchors.getChildren().add(geometryAnchorOptions);
-        addFormRow(anchors, "Anchor IDs", geometryStrategyAnchors);
-        section.getChildren().add(titledPane("Geometry Anchors", anchors));
-        return new VBox(10, section, detailsInfo);
+    private javafx.scene.Node geometryDetailsForm() {
+        return geometryPropertiesPanel.view();
     }
 
     private VBox fieldsDetailsForm() {
@@ -1289,156 +1244,12 @@ public final class ConfiguratorApplication extends Application {
         return new VBox(10, section, detailsInfo);
     }
 
-    private VBox section(String title) {
-        var label = new Label(title);
-        label.getStyleClass().add("details-section-title");
-        label.setStyle("-fx-text-fill: #111827;");
-        var content = new VBox(8);
-        content.setPadding(new Insets(8));
-        content.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
-        content.getChildren().add(label);
-        return content;
-    }
-
-    private TitledPane titledPane(String title, javafx.scene.Node content) {
-        var pane = new TitledPane(title, content);
-        pane.setExpanded(true);
-        pane.setMaxWidth(Double.MAX_VALUE);
-        pane.setStyle("-fx-text-fill: #111827;");
-        return pane;
-    }
-
-    private void addFormRow(VBox form, String labelText, Control control) {
-        addFormRow(form, labelText, control, new VBox());
-    }
-
-    private void addFormRow(VBox form, String labelText, javafx.scene.Node control) {
-        addFormRow(form, labelText, control, new VBox());
-    }
-
-    private void addFormRow(VBox form, String labelText, javafx.scene.Node control, VBox field) {
-        detachFromParent(control);
-        detachFromParent(field);
-        var label = new Label(labelText);
-        if (control instanceof Control fxControl) {
-            label.setLabelFor(fxControl);
-            label.setTooltip(fxControl.getTooltip());
-            fxControl.setMaxWidth(Double.MAX_VALUE);
-        }
-        if (control instanceof Label valueLabel) {
-            valueLabel.setStyle("-fx-text-fill: #111827;");
-        }
-        label.setMaxWidth(Double.MAX_VALUE);
-        label.setStyle("-fx-text-fill: #111827;");
-        field.setSpacing(2);
-        field.getChildren().setAll(label, control);
-        field.setMaxWidth(Double.MAX_VALUE);
-        form.getChildren().add(field);
-        VBox.setVgrow(control, Priority.NEVER);
-    }
-
     private void updatePagePolicyFieldsVisibility() {
         var selected = selectedPageType();
         setVisibleManaged(pageNumberField, PAGE_TYPE_SINGLE.equals(selected));
         setVisibleManaged(pageFromField, PAGE_TYPE_RANGE.equals(selected));
         setVisibleManaged(pageToField, PAGE_TYPE_RANGE.equals(selected));
         setVisibleManaged(pageListField, PAGE_TYPE_LIST.equals(selected));
-    }
-
-    private void setVisibleManaged(javafx.scene.Node node, boolean visible) {
-        node.setVisible(visible);
-        node.setManaged(visible);
-    }
-
-    private void detachFromParent(javafx.scene.Node node) {
-        if (node.getParent() instanceof javafx.scene.layout.Pane pane) {
-            pane.getChildren().remove(node);
-        }
-    }
-
-    private void installTooltip(Control control, String text) {
-        control.setTooltip(new Tooltip(text));
-    }
-
-    private void addDraftListener(TextInputControl control, Runnable action) {
-        control.textProperty().addListener((obs, old, value) -> action.run());
-    }
-
-    private void addSpinnerListener(Spinner<Integer> spinner, Runnable action) {
-        spinner.valueProperty().addListener((obs, old, value) -> action.run());
-        spinner.getEditor().textProperty().addListener((obs, old, value) -> action.run());
-    }
-
-    private void rebuildGeometryAnchorOptions() {
-        geometryAnchorOptions.getChildren().clear();
-        var selectedIds = new HashSet<>(parseStringList(geometryStrategyAnchors.getText()));
-        if (anchors().isEmpty()) {
-            var empty = new Label("No anchors configured.");
-            empty.setStyle("-fx-text-fill: #111827;");
-            geometryAnchorOptions.getChildren().add(empty);
-            return;
-        }
-        for (var anchor : anchors()) {
-            var id = blankToNull(anchor.id());
-            if (id == null) {
-                continue;
-            }
-            var checkBox = new CheckBox(id);
-            checkBox.setSelected(selectedIds.contains(id));
-            checkBox.setTooltip(new Tooltip("Use anchor '" + id + "' in geometry strategy."));
-            checkBox.setStyle("-fx-text-fill: #111827;");
-            checkBox.selectedProperty().addListener((obs, old, value) -> updateGeometryAnchorsFromChecks());
-            geometryAnchorOptions.getChildren().add(checkBox);
-        }
-    }
-
-    private void updateGeometryAnchorsFromChecks() {
-        if (refreshingDetails) {
-            return;
-        }
-        var selected = geometryAnchorOptions.getChildren().stream()
-            .filter(CheckBox.class::isInstance)
-            .map(CheckBox.class::cast)
-            .filter(CheckBox::isSelected)
-            .map(CheckBox::getText)
-            .toList();
-        refreshingDetails = true;
-        try {
-            geometryStrategyAnchors.setText(String.join(", ", selected));
-        } finally {
-            refreshingDetails = false;
-        }
-        applyGeometry();
-    }
-
-    private void useCurrentDocumentDimensions() {
-        var image = pageImage.getImage();
-        if (image == null) {
-            status.setText("Open a document before copying reference dimensions");
-            return;
-        }
-        refreshingDetails = true;
-        try {
-            geometryReferenceWidth.setText(formatRegionNumber(image.getWidth()));
-            geometryReferenceHeight.setText(formatRegionNumber(image.getHeight()));
-        } finally {
-            refreshingDetails = false;
-        }
-        applyGeometry();
-    }
-
-    private void updateGeometryWarning() {
-        var visible = hasConfiguredRegions();
-        geometryWarning.setText(visible
-            ? "Changing reference dimensions after defining regions may require adjusting anchors and field regions."
-            : "");
-        setVisibleManaged(geometryWarning, visible);
-    }
-
-    private boolean hasConfiguredRegions() {
-        return anchors().stream().anyMatch(anchor -> anchor.searchRegion() != null
-            || anchor.referenceFeature() != null && anchor.referenceFeature().bounds() != null)
-            || fields().stream().anyMatch(field -> field.region() != null);
     }
 
     private void applyCategoryMetadata() {
@@ -1480,26 +1291,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void applyGeometry() {
-        if (refreshingDetails || viewModel.draft() == null) {
-            return;
-        }
-        runUiSafe(() -> {
-            var current = viewModel.draft().geometry();
-            var newWidth = parseInteger(geometryReferenceWidth.getText());
-            var newHeight = parseInteger(geometryReferenceHeight.getText());
-            var dimensionsChanged = current != null
-                && (!java.util.Objects.equals(current.referenceWidth(), newWidth)
-                    || !java.util.Objects.equals(current.referenceHeight(), newHeight));
-            viewModel.updateGeometry(new GeometryDto(
-                newWidth,
-                newHeight,
-                new GeometryStrategyDto(nullToDefault(geometryStrategyType.getValue(), "NONE"), parseStringList(geometryStrategyAnchors.getText()))
-            ));
-            refreshAfterDraftEdit();
-            if (dimensionsChanged && hasConfiguredRegions()) {
-                status.setText("Reference dimensions changed; existing regions may need adjustment");
-            }
-        });
+        geometryPropertiesPanel.commit();
     }
 
     private void applySelectedFieldRegion() {
