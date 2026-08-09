@@ -115,7 +115,8 @@ public final class ConfiguratorApplication extends Application {
             renderOcrOverlay();
         });
         fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::selectedFieldIndex, detailsInfo,
-            this::refreshAfterDraftEdit, this::activateFieldRegionDrawing, () -> svgIcon("mode-draw-region.svg"));
+            this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
+            this::activateFieldRegionDrawing, this::svgIcon);
         propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         stage.setTitle("OCR Configurator");
@@ -553,6 +554,7 @@ public final class ConfiguratorApplication extends Application {
         viewer.clearOverlay();
         renderSelectedConditionRegionOverlay();
         renderSelectedAnchorOverlay();
+        renderSelectedFieldOverlay();
         var ocr = viewModel.session().ocrCache().get(new PageNumber(viewModel.session().currentPage()));
         if (ocr == null) {
             return;
@@ -611,6 +613,20 @@ public final class ConfiguratorApplication extends Application {
             viewer.addOverlay(rectangle);
             viewer.editableRegion(rectangle, RegionTargetType.ANCHOR_REFERENCE_BOUNDS);
         }
+    }
+
+    private void renderSelectedFieldOverlay() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.FIELD) {
+            return;
+        }
+        var field = field(selected.index());
+        if (field == null || field.region() == null || field.page() != null && field.page() != viewModel.session().currentPage()) {
+            return;
+        }
+        var rectangle = regionRectangle(field.region(), Color.color(0.50, 0.20, 0.82, 0.12), "#7c3aed", 2.0);
+        viewer.addOverlay(rectangle);
+        viewer.editableRegion(rectangle, RegionTargetType.FIELD_REGION);
     }
 
     private Rectangle regionRectangle(RegionDto region, Color fill, String stroke, double strokeWidth) {
@@ -907,13 +923,13 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void refreshAfterDraftEdit() {
-        refreshTree();
         status.setText(viewModel.status());
         validationList.getItems().setAll(viewModel.validationProblems().stream()
             .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
             .toList());
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
+        renderOcrOverlay();
     }
 
     private Integer parseInteger(String value) {
@@ -995,6 +1011,11 @@ public final class ConfiguratorApplication extends Application {
     private int selectedFieldIndex() {
         var selected = selectedTreeNode();
         return selected == null || selected.type() != TreeNodeType.FIELD ? -1 : selected.index();
+    }
+
+    private pl.sk.ocr.config.dto.FieldDto field(int index) {
+        var fieldList = fields();
+        return index < 0 || index >= fieldList.size() ? null : fieldList.get(index);
     }
 
     private List<pl.sk.ocr.config.dto.FieldDto> fields() {
