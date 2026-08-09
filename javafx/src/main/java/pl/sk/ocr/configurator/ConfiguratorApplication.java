@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import javafx.application.Application;
@@ -32,8 +34,10 @@ import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
+import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.GeometryDto;
 import pl.sk.ocr.config.dto.GeometryStrategyDto;
+import pl.sk.ocr.config.dto.ReferenceFeatureDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
@@ -59,6 +63,7 @@ public final class ConfiguratorApplication extends Application {
     private final PaneOverlay viewer = new PaneOverlay(pageImage);
     private final ScrollPane documentScroll = new ScrollPane(viewer);
     private final VBox detailsPanel = new VBox(8);
+    private final ScrollPane detailsScroll = new ScrollPane(detailsPanel);
     private final TextField categoryId = new TextField();
     private final TextField categoryDisplayName = new TextField();
     private final TextArea categoryDescription = new TextArea();
@@ -83,7 +88,32 @@ public final class ConfiguratorApplication extends Application {
     private final Label identificationGroupsCount = new Label();
     private final Button addIdentificationGroup = new Button("Add Group");
     private final Button removeLastIdentificationGroup = new Button("Remove Last Group");
+    private final ComboBox<String> conditionType = new ComboBox<>();
+    private final TextField conditionPage = new TextField();
+    private final TextField conditionExpectedText = new TextField();
+    private final TextField conditionMatcherId = new TextField();
+    private final TextField conditionDetectorId = new TextField();
+    private final Spinner<Integer> conditionSearchRegionX = regionSpinner();
+    private final Spinner<Integer> conditionSearchRegionY = regionSpinner();
+    private final Spinner<Integer> conditionSearchRegionWidth = regionSpinner();
+    private final Spinner<Integer> conditionSearchRegionHeight = regionSpinner();
+    private final Button drawConditionSearchRegion = new Button();
     private final Label anchorsCount = new Label();
+    private final Button addAnchor = new Button("Add Anchor");
+    private final TextField anchorId = new TextField();
+    private final TextField anchorPage = new TextField();
+    private final TextField anchorDetectorId = new TextField();
+    private final CheckBox anchorRequired = new CheckBox();
+    private final Spinner<Integer> anchorSearchRegionX = regionSpinner();
+    private final Spinner<Integer> anchorSearchRegionY = regionSpinner();
+    private final Spinner<Integer> anchorSearchRegionWidth = regionSpinner();
+    private final Spinner<Integer> anchorSearchRegionHeight = regionSpinner();
+    private final Spinner<Integer> anchorReferenceBoundsX = regionSpinner();
+    private final Spinner<Integer> anchorReferenceBoundsY = regionSpinner();
+    private final Spinner<Integer> anchorReferenceBoundsWidth = regionSpinner();
+    private final Spinner<Integer> anchorReferenceBoundsHeight = regionSpinner();
+    private final Button drawAnchorSearchRegion = new Button();
+    private final Button drawAnchorReferenceBounds = new Button();
     private final Label fieldsCount = new Label();
     private final TextField geometryReferenceWidth = new TextField();
     private final TextField geometryReferenceHeight = new TextField();
@@ -178,6 +208,7 @@ public final class ConfiguratorApplication extends Application {
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S), () -> setViewerMode(ViewerMode.SELECT));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.P), () -> setViewerMode(ViewerMode.PAN));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.R), () -> {
+            ensureRegionEditTargetForSelection();
             if (regionEditTarget != null) {
                 setViewerMode(ViewerMode.DRAW_REGION);
             }
@@ -194,9 +225,15 @@ public final class ConfiguratorApplication extends Application {
         validationList.setPrefHeight(180);
         configureCategoryDetailsForm();
         configureOtherDetailsForms();
-        var right = new VBox(8, new Label("Properties / Details"), detailsPanel, new Label("Validation"), validationList);
+        detailsScroll.setFitToWidth(true);
+        detailsScroll.setFitToHeight(false);
+        detailsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        detailsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        detailsScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        detailsPanel.setMaxWidth(Double.MAX_VALUE);
+        var right = new VBox(8, new Label("Properties / Details"), detailsScroll, new Label("Validation"), validationList);
         right.setPadding(new Insets(8));
-        VBox.setVgrow(detailsPanel, Priority.ALWAYS);
+        VBox.setVgrow(detailsScroll, Priority.ALWAYS);
         documentScroll.setFitToWidth(false);
         documentScroll.setFitToHeight(false);
         documentScroll.setPannable(false);
@@ -213,6 +250,7 @@ public final class ConfiguratorApplication extends Application {
         selectMode = iconButton("mode-select.svg", "Select (S)", () -> setViewerMode(ViewerMode.SELECT));
         panMode = iconButton("mode-pan.svg", "Pan (P)", () -> setViewerMode(ViewerMode.PAN));
         drawRegionMode = iconButton("mode-draw-region.svg", "Draw Region (R)", () -> {
+            ensureRegionEditTargetForSelection();
             if (regionEditTarget != null) {
                 setViewerMode(ViewerMode.DRAW_REGION);
             }
@@ -291,6 +329,13 @@ public final class ConfiguratorApplication extends Application {
         return button;
     }
 
+    private static Spinner<Integer> regionSpinner() {
+        var spinner = new Spinner<Integer>(Integer.MIN_VALUE, Integer.MAX_VALUE, 0);
+        spinner.setEditable(true);
+        spinner.setPrefWidth(110);
+        return spinner;
+    }
+
     private SVGPath svgIcon(String iconName) {
         var path = new SVGPath();
         path.setContent(svgPathContent(iconName));
@@ -330,6 +375,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void saveCategory(Stage stage, boolean saveAs) {
+        commitCurrentDetailsForm();
         var path = viewModel.session().categoryPath();
         if (saveAs || path == null) {
             var chooser = new FileChooser();
@@ -343,6 +389,25 @@ public final class ConfiguratorApplication extends Application {
                 viewModel.saveCategory(savePath);
                 refreshAll();
             });
+        }
+    }
+
+    private void commitCurrentDetailsForm() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        switch (selectedNodeType()) {
+            case ROOT -> {
+                applyCategoryMetadata();
+                applyPages();
+                applyOcrDefaults();
+            }
+            case CONDITION -> applySelectedCondition();
+            case ANCHOR -> applySelectedAnchor();
+            case GEOMETRY, GEOMETRY_STRATEGY -> applyGeometry();
+            case FIELD -> applySelectedFieldRegion();
+            default -> {
+            }
         }
     }
 
@@ -535,6 +600,8 @@ public final class ConfiguratorApplication extends Application {
 
     private void renderOcrOverlay() {
         viewer.clearOverlay();
+        renderSelectedConditionRegionOverlay();
+        renderSelectedAnchorOverlay();
         var ocr = viewModel.session().ocrCache().get(new PageNumber(viewModel.session().currentPage()));
         if (ocr == null) {
             return;
@@ -552,6 +619,56 @@ public final class ConfiguratorApplication extends Application {
             });
             viewer.addOverlay(rectangle);
         }
+    }
+
+    private void renderSelectedConditionRegionOverlay() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.CONDITION || !hasValidConditionSearchRegion()) {
+            viewer.clearEditableRegions();
+            return;
+        }
+        var condition = selectedCondition();
+        if (condition == null || condition.page() != null && condition.page() != viewModel.session().currentPage()) {
+            viewer.clearEditableRegions();
+            return;
+        }
+        var screen = viewer.mapper().imageToScreen(toDomainRegion(conditionSearchRegion()));
+        var rectangle = new Rectangle(screen.x(), screen.y(), screen.width(), screen.height());
+        rectangle.setFill(Color.color(0.12, 0.48, 0.93, 0.12));
+        rectangle.setStroke(Color.web("#1f7aec"));
+        rectangle.setStrokeWidth(2.0);
+        viewer.addOverlay(rectangle);
+        viewer.editableRegion(rectangle, RegionTargetType.CONDITION_SEARCH_REGION);
+    }
+
+    private void renderSelectedAnchorOverlay() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            return;
+        }
+        var anchor = selectedAnchor();
+        if (anchor == null || anchor.page() != null && anchor.page() != viewModel.session().currentPage()) {
+            return;
+        }
+        if (anchor.searchRegion() != null) {
+            var rectangle = regionRectangle(anchor.searchRegion(), Color.color(0.93, 0.56, 0.12, 0.10), "#d97706", 1.5);
+            viewer.addOverlay(rectangle);
+            viewer.editableRegion(rectangle, RegionTargetType.ANCHOR_SEARCH_REGION);
+        }
+        if (anchor.referenceFeature() != null && anchor.referenceFeature().bounds() != null) {
+            var rectangle = regionRectangle(anchor.referenceFeature().bounds(), Color.color(0.12, 0.65, 0.38, 0.12), "#059669", 2.0);
+            viewer.addOverlay(rectangle);
+            viewer.editableRegion(rectangle, RegionTargetType.ANCHOR_REFERENCE_BOUNDS);
+        }
+    }
+
+    private Rectangle regionRectangle(RegionDto region, Color fill, String stroke, double strokeWidth) {
+        var screen = viewer.mapper().imageToScreen(toDomainRegion(region));
+        var rectangle = new Rectangle(screen.x(), screen.y(), screen.width(), screen.height());
+        rectangle.setFill(fill);
+        rectangle.setStroke(Color.web(stroke));
+        rectangle.setStrokeWidth(strokeWidth);
+        return rectangle;
     }
 
     private void refreshAll() {
@@ -701,7 +818,33 @@ public final class ConfiguratorApplication extends Application {
         identificationGroupsCount.setText(String.valueOf(draft.identification() == null || draft.identification().groups() == null
             ? 0
             : draft.identification().groups().size()));
+        var selectedCondition = selectedCondition();
+        conditionType.setValue(selectedCondition == null || selectedCondition.type() == null ? "TEXT" : selectedCondition.type());
+        conditionPage.setText(selectedCondition == null || selectedCondition.page() == null ? "" : selectedCondition.page().toString());
+        conditionExpectedText.setText(selectedCondition == null ? "" : nullToEmpty(selectedCondition.expectedText()));
+        conditionMatcherId.setText(selectedCondition == null || selectedCondition.matcher() == null ? "" : nullToEmpty(selectedCondition.matcher().id()));
+        conditionDetectorId.setText(selectedCondition == null || selectedCondition.detector() == null ? "" : nullToEmpty(selectedCondition.detector().id()));
+        var conditionRegion = selectedCondition == null ? null : selectedCondition.searchRegion();
+        setRegionSpinnerText(conditionSearchRegionX, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.x()));
+        setRegionSpinnerText(conditionSearchRegionY, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.y()));
+        setRegionSpinnerText(conditionSearchRegionWidth, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.width()));
+        setRegionSpinnerText(conditionSearchRegionHeight, conditionRegion == null ? "" : formatRegionNumber(conditionRegion.height()));
         anchorsCount.setText(String.valueOf(draft.anchors() == null ? 0 : draft.anchors().size()));
+        var selectedAnchor = selectedAnchor();
+        anchorId.setText(selectedAnchor == null ? "" : nullToEmpty(selectedAnchor.id()));
+        anchorPage.setText(selectedAnchor == null || selectedAnchor.page() == null ? "" : selectedAnchor.page().toString());
+        anchorDetectorId.setText(selectedAnchor == null || selectedAnchor.detector() == null ? "" : nullToEmpty(selectedAnchor.detector().id()));
+        anchorRequired.setSelected(selectedAnchor != null && Boolean.TRUE.equals(selectedAnchor.required()));
+        var anchorSearchRegion = selectedAnchor == null ? null : selectedAnchor.searchRegion();
+        setRegionSpinnerText(anchorSearchRegionX, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.x()));
+        setRegionSpinnerText(anchorSearchRegionY, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.y()));
+        setRegionSpinnerText(anchorSearchRegionWidth, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.width()));
+        setRegionSpinnerText(anchorSearchRegionHeight, anchorSearchRegion == null ? "" : formatRegionNumber(anchorSearchRegion.height()));
+        var anchorReferenceBounds = selectedAnchor == null || selectedAnchor.referenceFeature() == null ? null : selectedAnchor.referenceFeature().bounds();
+        setRegionSpinnerText(anchorReferenceBoundsX, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.x()));
+        setRegionSpinnerText(anchorReferenceBoundsY, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.y()));
+        setRegionSpinnerText(anchorReferenceBoundsWidth, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.width()));
+        setRegionSpinnerText(anchorReferenceBoundsHeight, anchorReferenceBounds == null ? "" : formatRegionNumber(anchorReferenceBounds.height()));
         fieldsCount.setText(String.valueOf(draft.fields() == null ? 0 : draft.fields().size()));
         var geometry = draft.geometry();
         geometryReferenceWidth.setText(geometry == null || geometry.referenceWidth() == null ? "" : geometry.referenceWidth().toString());
@@ -713,13 +856,14 @@ public final class ConfiguratorApplication extends Application {
             : String.join(", ", strategy.anchors()));
         var selectedField = selectedField();
         var selectedRegion = selectedField == null ? null : selectedField.region();
-        fieldRegionX.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.x()));
-        fieldRegionY.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.y()));
-        fieldRegionWidth.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.width()));
-        fieldRegionHeight.setText(selectedRegion == null ? "" : String.valueOf(selectedRegion.height()));
+        fieldRegionX.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.x()));
+        fieldRegionY.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.y()));
+        fieldRegionWidth.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.width()));
+        fieldRegionHeight.setText(selectedRegion == null ? "" : formatRegionNumber(selectedRegion.height()));
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
         detailsPanel.getChildren().setAll(detailsFormForSelection());
+        renderOcrOverlay();
         refreshingDetails = false;
     }
 
@@ -773,7 +917,45 @@ public final class ConfiguratorApplication extends Application {
         installTooltip(identificationGroupsCount, "Number of OR groups in category identification.");
         installTooltip(addIdentificationGroup, "Add a new empty OR group.");
         installTooltip(removeLastIdentificationGroup, "Remove the last OR group.");
+        conditionType.getItems().setAll("TEXT", "QR", "BARCODE");
+        installTooltip(conditionType, "Condition type.");
+        installTooltip(conditionPage, "Page where this condition should be evaluated. Empty means default behavior.");
+        installTooltip(conditionExpectedText, "Text expected by TEXT condition.");
+        installTooltip(conditionMatcherId, "Matcher extension id used by this condition.");
+        installTooltip(conditionDetectorId, "Detector extension id used by this condition.");
+        installTooltip(conditionSearchRegionX, "Condition search region X coordinate.");
+        installTooltip(conditionSearchRegionY, "Condition search region Y coordinate.");
+        installTooltip(conditionSearchRegionWidth, "Condition search region width.");
+        installTooltip(conditionSearchRegionHeight, "Condition search region height.");
+        drawConditionSearchRegion.setGraphic(svgIcon("mode-draw-region.svg"));
+        drawConditionSearchRegion.setTooltip(new Tooltip("Draw condition search region on document preview."));
+        drawConditionSearchRegion.setMinSize(36, 32);
+        drawConditionSearchRegion.setPrefSize(36, 32);
+        drawConditionSearchRegion.setMaxSize(36, 32);
         installTooltip(anchorsCount, "Number of anchors configured for geometry detection.");
+        installTooltip(addAnchor, "Add a new anchor.");
+        installTooltip(anchorId, "Anchor id used by geometry strategy references.");
+        installTooltip(anchorPage, "Page where this anchor should be detected.");
+        installTooltip(anchorDetectorId, "Detector extension id used by this anchor.");
+        installTooltip(anchorRequired, "Whether missing anchor should fail geometry detection.");
+        installTooltip(anchorSearchRegionX, "Anchor search region X coordinate.");
+        installTooltip(anchorSearchRegionY, "Anchor search region Y coordinate.");
+        installTooltip(anchorSearchRegionWidth, "Anchor search region width.");
+        installTooltip(anchorSearchRegionHeight, "Anchor search region height.");
+        installTooltip(anchorReferenceBoundsX, "Reference feature bounds X coordinate.");
+        installTooltip(anchorReferenceBoundsY, "Reference feature bounds Y coordinate.");
+        installTooltip(anchorReferenceBoundsWidth, "Reference feature bounds width.");
+        installTooltip(anchorReferenceBoundsHeight, "Reference feature bounds height.");
+        drawAnchorSearchRegion.setGraphic(svgIcon("mode-draw-region.svg"));
+        drawAnchorSearchRegion.setTooltip(new Tooltip("Draw anchor search region on document preview."));
+        drawAnchorSearchRegion.setMinSize(36, 32);
+        drawAnchorSearchRegion.setPrefSize(36, 32);
+        drawAnchorSearchRegion.setMaxSize(36, 32);
+        drawAnchorReferenceBounds.setGraphic(svgIcon("mode-draw-region.svg"));
+        drawAnchorReferenceBounds.setTooltip(new Tooltip("Draw anchor reference feature bounds on document preview."));
+        drawAnchorReferenceBounds.setMinSize(36, 32);
+        drawAnchorReferenceBounds.setPrefSize(36, 32);
+        drawAnchorReferenceBounds.setMaxSize(36, 32);
         installTooltip(fieldsCount, "Number of fields configured for extraction.");
         installTooltip(geometryReferenceWidth, "Reference document width used by geometry normalization.");
         installTooltip(geometryReferenceHeight, "Reference document height used by geometry normalization.");
@@ -809,6 +991,31 @@ public final class ConfiguratorApplication extends Application {
         addDraftListener(geometryReferenceHeight, this::applyGeometry);
         addDraftListener(geometryStrategyType, this::applyGeometry);
         addDraftListener(geometryStrategyAnchors, this::applyGeometry);
+        conditionType.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
+        addDraftListener(conditionPage, this::applySelectedCondition);
+        addDraftListener(conditionExpectedText, this::applySelectedCondition);
+        addDraftListener(conditionMatcherId, this::applySelectedCondition);
+        addDraftListener(conditionDetectorId, this::applySelectedCondition);
+        addSpinnerListener(conditionSearchRegionX, this::applySelectedCondition);
+        addSpinnerListener(conditionSearchRegionY, this::applySelectedCondition);
+        addSpinnerListener(conditionSearchRegionWidth, this::applySelectedCondition);
+        addSpinnerListener(conditionSearchRegionHeight, this::applySelectedCondition);
+        drawConditionSearchRegion.setOnAction(event -> activateConditionSearchRegionDrawing());
+        addAnchor.setOnAction(event -> addAnchor());
+        addDraftListener(anchorId, this::applySelectedAnchor);
+        addDraftListener(anchorPage, this::applySelectedAnchor);
+        addDraftListener(anchorDetectorId, this::applySelectedAnchor);
+        anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
+        addSpinnerListener(anchorSearchRegionX, this::applySelectedAnchor);
+        addSpinnerListener(anchorSearchRegionY, this::applySelectedAnchor);
+        addSpinnerListener(anchorSearchRegionWidth, this::applySelectedAnchor);
+        addSpinnerListener(anchorSearchRegionHeight, this::applySelectedAnchor);
+        addSpinnerListener(anchorReferenceBoundsX, this::applySelectedAnchor);
+        addSpinnerListener(anchorReferenceBoundsY, this::applySelectedAnchor);
+        addSpinnerListener(anchorReferenceBoundsWidth, this::applySelectedAnchor);
+        addSpinnerListener(anchorReferenceBoundsHeight, this::applySelectedAnchor);
+        drawAnchorSearchRegion.setOnAction(event -> activateAnchorSearchRegionDrawing());
+        drawAnchorReferenceBounds.setOnAction(event -> activateAnchorReferenceBoundsDrawing());
         addDraftListener(fieldRegionX, this::applySelectedFieldRegion);
         addDraftListener(fieldRegionY, this::applySelectedFieldRegion);
         addDraftListener(fieldRegionWidth, this::applySelectedFieldRegion);
@@ -900,31 +1107,25 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void conditionControls(VBox section, int groupIndex, int conditionIndex) {
-        var condition = condition(groupIndex, conditionIndex);
-        addFormRow(section, "Group", new Label(String.valueOf(groupIndex + 1)));
-        addFormRow(section, "Condition", new Label(String.valueOf(conditionIndex + 1)));
-        var type = new ComboBox<String>();
-        type.getItems().setAll("TEXT", "QR", "BARCODE");
-        type.setValue(condition == null || condition.type() == null ? "TEXT" : condition.type());
-        type.setTooltip(new Tooltip("Condition type."));
-        type.valueProperty().addListener((obs, old, value) -> {
-            if (refreshingDetails || condition(groupIndex, conditionIndex) == null) {
-                return;
-            }
-            var current = condition(groupIndex, conditionIndex);
-            runUiSafe(() -> {
-                viewModel.replaceCondition(groupIndex, conditionIndex, new pl.sk.ocr.config.dto.ConditionDto(
-                    value,
-                    current.page(),
-                    current.expectedText(),
-                    current.matcher(),
-                    current.detector(),
-                    current.searchRegion()
-                ));
-                refreshAll();
-            });
-        });
-        addFormRow(section, "Type", type);
+        var identificationContent = new VBox(8);
+        addFormRow(identificationContent, "Group", new Label(String.valueOf(groupIndex + 1)));
+        addFormRow(identificationContent, "Condition", new Label(String.valueOf(conditionIndex + 1)));
+        addFormRow(identificationContent, "Type", conditionType);
+        addFormRow(identificationContent, "Page", conditionPage);
+        addFormRow(identificationContent, "Expected Text", conditionExpectedText);
+        addFormRow(identificationContent, "Matcher ID", conditionMatcherId);
+        addFormRow(identificationContent, "Detector ID", conditionDetectorId);
+        section.getChildren().add(titledPane("Identification", identificationContent));
+
+        var searchRegionContent = new VBox(8);
+        addFormRow(searchRegionContent, "X", conditionSearchRegionX);
+        addFormRow(searchRegionContent, "Y", conditionSearchRegionY);
+        addFormRow(searchRegionContent, "Width", conditionSearchRegionWidth);
+        addFormRow(searchRegionContent, "Height", conditionSearchRegionHeight);
+        section.getChildren().add(titledPane("Search Region", searchRegionContent));
+
+        detachFromParent(drawConditionSearchRegion);
+        section.getChildren().add(drawConditionSearchRegion);
         var addCondition = button("Add Condition", () -> runUiSafe(() -> {
             var newIndex = conditions(groupIndex).size();
             viewModel.addCondition(groupIndex, new pl.sk.ocr.config.dto.ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
@@ -958,8 +1159,67 @@ public final class ConfiguratorApplication extends Application {
 
     private VBox anchorsDetailsForm() {
         var section = section("Anchors");
-        addFormRow(section, "Anchors", anchorsCount);
+        var selected = selectedTreeNode();
+        if (selected != null && selected.type() == TreeNodeType.ANCHOR) {
+            anchorControls(section, selected.index());
+        } else {
+            addFormRow(section, "Anchors", anchorsCount);
+            detachFromParent(addAnchor);
+            section.getChildren().add(addAnchor);
+        }
         return new VBox(10, section, detailsInfo);
+    }
+
+    private void anchorControls(VBox section, int anchorIndex) {
+        var anchorContent = new VBox(8);
+        addFormRow(anchorContent, "ID", anchorId);
+        addFormRow(anchorContent, "Page", anchorPage);
+        addFormRow(anchorContent, "Detector ID", anchorDetectorId);
+        addFormRow(anchorContent, "Required", anchorRequired);
+        section.getChildren().add(titledPane("Anchor", anchorContent));
+
+        var searchRegionContent = new VBox(8);
+        addFormRow(searchRegionContent, "X", anchorSearchRegionX);
+        addFormRow(searchRegionContent, "Y", anchorSearchRegionY);
+        addFormRow(searchRegionContent, "Width", anchorSearchRegionWidth);
+        addFormRow(searchRegionContent, "Height", anchorSearchRegionHeight);
+        detachFromParent(drawAnchorSearchRegion);
+        searchRegionContent.getChildren().add(drawAnchorSearchRegion);
+        section.getChildren().add(titledPane("Search Region", searchRegionContent));
+
+        var referenceContent = new VBox(8);
+        addFormRow(referenceContent, "X", anchorReferenceBoundsX);
+        addFormRow(referenceContent, "Y", anchorReferenceBoundsY);
+        addFormRow(referenceContent, "Width", anchorReferenceBoundsWidth);
+        addFormRow(referenceContent, "Height", anchorReferenceBoundsHeight);
+        detachFromParent(drawAnchorReferenceBounds);
+        referenceContent.getChildren().add(drawAnchorReferenceBounds);
+        section.getChildren().add(titledPane("Reference Feature", referenceContent));
+
+        var add = button("Add Anchor", this::addAnchor);
+        var moveUp = button("Move Up", () -> runUiSafe(() -> {
+            if (anchorIndex > 0) {
+                viewModel.moveAnchor(anchorIndex, anchorIndex - 1);
+                pendingTreeSelectionId = "anchor." + (anchorIndex - 1);
+                refreshAll();
+            }
+        }));
+        var moveDown = button("Move Down", () -> runUiSafe(() -> {
+            var anchors = anchors();
+            if (anchorIndex < anchors.size() - 1) {
+                viewModel.moveAnchor(anchorIndex, anchorIndex + 1);
+                pendingTreeSelectionId = "anchor." + (anchorIndex + 1);
+                refreshAll();
+            }
+        }));
+        var remove = button("Remove Anchor", () -> runUiSafe(() -> {
+            viewModel.removeAnchor(anchorIndex);
+            pendingTreeSelectionId = "anchors";
+            refreshAll();
+        }));
+        moveUp.setDisable(anchorIndex <= 0);
+        moveDown.setDisable(anchorIndex >= anchors().size() - 1);
+        section.getChildren().add(new HBox(8, add, moveUp, moveDown, remove));
     }
 
     private VBox geometryDetailsForm() {
@@ -999,11 +1259,20 @@ public final class ConfiguratorApplication extends Application {
     private VBox section(String title) {
         var label = new Label(title);
         label.getStyleClass().add("details-section-title");
+        label.setStyle("-fx-text-fill: #111827;");
         var content = new VBox(8);
         content.setPadding(new Insets(8));
         content.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
         content.getChildren().add(label);
         return content;
+    }
+
+    private TitledPane titledPane(String title, javafx.scene.Node content) {
+        var pane = new TitledPane(title, content);
+        pane.setExpanded(true);
+        pane.setMaxWidth(Double.MAX_VALUE);
+        pane.setStyle("-fx-text-fill: #111827;");
+        return pane;
     }
 
     private void addFormRow(VBox form, String labelText, Control control) {
@@ -1024,6 +1293,7 @@ public final class ConfiguratorApplication extends Application {
             fxControl.setMaxWidth(Double.MAX_VALUE);
         }
         label.setMaxWidth(Double.MAX_VALUE);
+        label.setStyle("-fx-text-fill: #111827;");
         field.setSpacing(2);
         field.getChildren().setAll(label, control);
         field.setMaxWidth(Double.MAX_VALUE);
@@ -1058,6 +1328,11 @@ public final class ConfiguratorApplication extends Application {
         control.textProperty().addListener((obs, old, value) -> action.run());
     }
 
+    private void addSpinnerListener(Spinner<Integer> spinner, Runnable action) {
+        spinner.valueProperty().addListener((obs, old, value) -> action.run());
+        spinner.getEditor().textProperty().addListener((obs, old, value) -> action.run());
+    }
+
     private void applyCategoryMetadata() {
         if (refreshingDetails || viewModel.draft() == null) {
             return;
@@ -1082,6 +1357,7 @@ public final class ConfiguratorApplication extends Application {
                 parseIntegerList(pageList.getText())
             ));
             refreshAfterDraftEdit();
+            renderOcrOverlay();
         });
     }
 
@@ -1128,14 +1404,192 @@ public final class ConfiguratorApplication extends Application {
         });
     }
 
+    private void applySelectedCondition() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.replaceCondition(selected.index(), selected.childIndex(), new pl.sk.ocr.config.dto.ConditionDto(
+                nullToDefault(conditionType.getValue(), "TEXT"),
+                parseInteger(conditionPage.getText()),
+                blankToNull(conditionExpectedText.getText()),
+                extensionRef(conditionMatcherId.getText()),
+                extensionRef(conditionDetectorId.getText()),
+                conditionSearchRegion()
+            ));
+            refreshAfterDraftEdit();
+        });
+    }
+
+    private void addAnchor() {
+        if (viewModel.draft() == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            var index = anchors().size();
+            var id = uniqueAnchorId(index + 1);
+            viewModel.addAnchor(new pl.sk.ocr.config.dto.AnchorDto(
+                id,
+                viewModel.session().currentPage(),
+                extensionRef("text"),
+                true,
+                null,
+                null
+            ));
+            pendingTreeSelectionId = "anchor." + index;
+            refreshAll();
+        });
+    }
+
+    private void applySelectedAnchor() {
+        if (refreshingDetails || viewModel.draft() == null) {
+            return;
+        }
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            return;
+        }
+        runUiSafe(() -> {
+            viewModel.replaceAnchor(selected.index(), new pl.sk.ocr.config.dto.AnchorDto(
+                blankToNull(anchorId.getText()),
+                parseInteger(anchorPage.getText()),
+                extensionRef(anchorDetectorId.getText()),
+                anchorRequired.isSelected(),
+                anchorReferenceFeature(),
+                anchorSearchRegion()
+            ));
+            pendingTreeSelectionId = "anchor." + selected.index();
+            refreshAfterDraftEdit();
+        });
+    }
+
     private void activateFieldRegionDrawing() {
         var selected = selectedTreeNode();
         if (selected == null || selected.type() != TreeNodeType.FIELD) {
             status.setText("Select a field to draw its region");
             return;
         }
-        regionEditTarget = new RegionEditTarget(RegionTargetType.FIELD_REGION, selected.index());
+        regionEditTarget = new RegionEditTarget(RegionTargetType.FIELD_REGION, selected.index(), -1);
         setViewerMode(ViewerMode.DRAW_REGION);
+    }
+
+    private void activateConditionSearchRegionDrawing() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
+            status.setText("Select a condition to draw its search region");
+            return;
+        }
+        regionEditTarget = new RegionEditTarget(RegionTargetType.CONDITION_SEARCH_REGION, selected.index(), selected.childIndex());
+        setViewerMode(ViewerMode.DRAW_REGION);
+    }
+
+    private void activateAnchorSearchRegionDrawing() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            status.setText("Select an anchor to draw its search region");
+            return;
+        }
+        regionEditTarget = new RegionEditTarget(RegionTargetType.ANCHOR_SEARCH_REGION, selected.index(), -1);
+        setViewerMode(ViewerMode.DRAW_REGION);
+    }
+
+    private void activateAnchorReferenceBoundsDrawing() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            status.setText("Select an anchor to draw its reference feature");
+            return;
+        }
+        regionEditTarget = new RegionEditTarget(RegionTargetType.ANCHOR_REFERENCE_BOUNDS, selected.index(), -1);
+        setViewerMode(ViewerMode.DRAW_REGION);
+    }
+
+    private void ensureRegionEditTargetForSelection() {
+        var selected = selectedTreeNode();
+        if (selected == null) {
+            return;
+        }
+        if (selected.type() == TreeNodeType.CONDITION) {
+            regionEditTarget = new RegionEditTarget(RegionTargetType.CONDITION_SEARCH_REGION, selected.index(), selected.childIndex());
+        } else if (selected.type() == TreeNodeType.ANCHOR) {
+            regionEditTarget = new RegionEditTarget(RegionTargetType.ANCHOR_REFERENCE_BOUNDS, selected.index(), -1);
+        } else if (selected.type() == TreeNodeType.FIELD) {
+            regionEditTarget = new RegionEditTarget(RegionTargetType.FIELD_REGION, selected.index(), -1);
+        }
+    }
+
+    private void updateSelectedConditionRegionFromViewer(RegionDto region, boolean commit) {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
+            return;
+        }
+        refreshingDetails = true;
+        try {
+            setRegionSpinnerText(conditionSearchRegionX, formatRegionNumber(region.x()));
+            setRegionSpinnerText(conditionSearchRegionY, formatRegionNumber(region.y()));
+            setRegionSpinnerText(conditionSearchRegionWidth, formatRegionNumber(region.width()));
+            setRegionSpinnerText(conditionSearchRegionHeight, formatRegionNumber(region.height()));
+        } finally {
+            refreshingDetails = false;
+        }
+        if (commit) {
+            applySelectedCondition();
+        }
+    }
+
+    private void updateSelectedAnchorReferenceBoundsFromViewer(RegionDto region, boolean commit) {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            return;
+        }
+        refreshingDetails = true;
+        try {
+            setRegionSpinnerText(anchorReferenceBoundsX, formatRegionNumber(region.x()));
+            setRegionSpinnerText(anchorReferenceBoundsY, formatRegionNumber(region.y()));
+            setRegionSpinnerText(anchorReferenceBoundsWidth, formatRegionNumber(region.width()));
+            setRegionSpinnerText(anchorReferenceBoundsHeight, formatRegionNumber(region.height()));
+        } finally {
+            refreshingDetails = false;
+        }
+        if (commit) {
+            applySelectedAnchor();
+        }
+    }
+
+    private void updateSelectedAnchorSearchRegionFromViewer(RegionDto region, boolean commit) {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            return;
+        }
+        refreshingDetails = true;
+        try {
+            setRegionSpinnerText(anchorSearchRegionX, formatRegionNumber(region.x()));
+            setRegionSpinnerText(anchorSearchRegionY, formatRegionNumber(region.y()));
+            setRegionSpinnerText(anchorSearchRegionWidth, formatRegionNumber(region.width()));
+            setRegionSpinnerText(anchorSearchRegionHeight, formatRegionNumber(region.height()));
+        } finally {
+            refreshingDetails = false;
+        }
+        if (commit) {
+            applySelectedAnchor();
+        }
+    }
+
+    private void updateSelectedEditableRegionFromViewer(RegionTargetType targetType, RegionDto region, boolean commit) {
+        var selected = selectedTreeNode();
+        if (selected == null) {
+            return;
+        }
+        if (targetType == RegionTargetType.CONDITION_SEARCH_REGION) {
+            updateSelectedConditionRegionFromViewer(region, commit);
+        } else if (targetType == RegionTargetType.ANCHOR_SEARCH_REGION) {
+            updateSelectedAnchorSearchRegionFromViewer(region, commit);
+        } else if (targetType == RegionTargetType.ANCHOR_REFERENCE_BOUNDS) {
+            updateSelectedAnchorReferenceBoundsFromViewer(region, commit);
+        }
     }
 
     private void applyDrawnRegion(RegionDto region) {
@@ -1145,6 +1599,42 @@ public final class ConfiguratorApplication extends Application {
         runUiSafe(() -> {
             if (regionEditTarget.type() == RegionTargetType.FIELD_REGION) {
                 viewModel.updateFieldRegion(regionEditTarget.index(), region);
+            } else if (regionEditTarget.type() == RegionTargetType.CONDITION_SEARCH_REGION) {
+                var current = condition(regionEditTarget.index(), regionEditTarget.childIndex());
+                if (current != null) {
+                    viewModel.replaceCondition(regionEditTarget.index(), regionEditTarget.childIndex(), new pl.sk.ocr.config.dto.ConditionDto(
+                        current.type(),
+                        current.page(),
+                        current.expectedText(),
+                        current.matcher(),
+                        current.detector(),
+                        region
+                    ));
+                }
+            } else if (regionEditTarget.type() == RegionTargetType.ANCHOR_SEARCH_REGION) {
+                var current = anchor(regionEditTarget.index());
+                if (current != null) {
+                    viewModel.replaceAnchor(regionEditTarget.index(), new pl.sk.ocr.config.dto.AnchorDto(
+                        current.id(),
+                        current.page(),
+                        current.detector(),
+                        current.required(),
+                        current.referenceFeature(),
+                        region
+                    ));
+                }
+            } else if (regionEditTarget.type() == RegionTargetType.ANCHOR_REFERENCE_BOUNDS) {
+                var current = anchor(regionEditTarget.index());
+                if (current != null) {
+                    viewModel.replaceAnchor(regionEditTarget.index(), new pl.sk.ocr.config.dto.AnchorDto(
+                        current.id(),
+                        current.page(),
+                        current.detector(),
+                        current.required(),
+                        new ReferenceFeatureDto(region),
+                        current.searchRegion()
+                    ));
+                }
             }
             regionEditTarget = null;
             setViewerMode(ViewerMode.SELECT);
@@ -1225,6 +1715,92 @@ public final class ConfiguratorApplication extends Application {
         return Double.parseDouble(text);
     }
 
+    private String formatRegionNumber(double value) {
+        return String.valueOf(Math.round(value));
+    }
+
+    private RegionDto roundedRegion(double x, double y, double width, double height) {
+        return new RegionDto(Math.round(x), Math.round(y), Math.round(width), Math.round(height));
+    }
+
+    private pl.sk.ocr.domain.geometry.Region toDomainRegion(RegionDto region) {
+        return new pl.sk.ocr.domain.geometry.Region(region.x(), region.y(), region.width(), region.height());
+    }
+
+    private RegionDto conditionSearchRegion() {
+        if (!hasCompleteConditionSearchRegion()) {
+            return null;
+        }
+        return new RegionDto(
+            parseInteger(conditionSearchRegionX.getEditor().getText()),
+            parseInteger(conditionSearchRegionY.getEditor().getText()),
+            parseInteger(conditionSearchRegionWidth.getEditor().getText()),
+            parseInteger(conditionSearchRegionHeight.getEditor().getText())
+        );
+    }
+
+    private boolean hasCompleteConditionSearchRegion() {
+        return blankToNull(conditionSearchRegionX.getEditor().getText()) != null
+            && blankToNull(conditionSearchRegionY.getEditor().getText()) != null
+            && blankToNull(conditionSearchRegionWidth.getEditor().getText()) != null
+            && blankToNull(conditionSearchRegionHeight.getEditor().getText()) != null;
+    }
+
+    private boolean hasValidConditionSearchRegion() {
+        try {
+            return conditionSearchRegion() != null;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private RegionDto anchorSearchRegion() {
+        return spinnerRegion(anchorSearchRegionX, anchorSearchRegionY, anchorSearchRegionWidth, anchorSearchRegionHeight);
+    }
+
+    private ReferenceFeatureDto anchorReferenceFeature() {
+        var bounds = spinnerRegion(anchorReferenceBoundsX, anchorReferenceBoundsY, anchorReferenceBoundsWidth, anchorReferenceBoundsHeight);
+        return bounds == null ? null : new ReferenceFeatureDto(bounds);
+    }
+
+    private RegionDto spinnerRegion(Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width, Spinner<Integer> height) {
+        if (blankToNull(x.getEditor().getText()) == null
+            || blankToNull(y.getEditor().getText()) == null
+            || blankToNull(width.getEditor().getText()) == null
+            || blankToNull(height.getEditor().getText()) == null) {
+            return null;
+        }
+        return new RegionDto(
+            parseInteger(x.getEditor().getText()),
+            parseInteger(y.getEditor().getText()),
+            parseInteger(width.getEditor().getText()),
+            parseInteger(height.getEditor().getText())
+        );
+    }
+
+    private void setRegionSpinnerText(Spinner<Integer> spinner, String value) {
+        spinner.getEditor().setText(value);
+        if (blankToNull(value) != null) {
+            spinner.getValueFactory().setValue(Integer.parseInt(value));
+        }
+    }
+
+    private String uniqueAnchorId(int seed) {
+        var existing = anchors().stream().map(pl.sk.ocr.config.dto.AnchorDto::id).collect(java.util.stream.Collectors.toSet());
+        var candidate = "anchor-" + seed;
+        var suffix = seed;
+        while (existing.contains(candidate)) {
+            suffix++;
+            candidate = "anchor-" + suffix;
+        }
+        return candidate;
+    }
+
+    private ExtensionRefDto extensionRef(String id) {
+        var normalized = blankToNull(id);
+        return normalized == null ? null : new ExtensionRefDto(normalized, Map.of());
+    }
+
     private java.util.List<Integer> parseIntegerList(String value) {
         var text = blankToNull(value);
         if (text == null) {
@@ -1254,6 +1830,10 @@ public final class ConfiguratorApplication extends Application {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String nullToDefault(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value;
     }
 
     private String selectedPageType() {
@@ -1294,12 +1874,40 @@ public final class ConfiguratorApplication extends Application {
         return groups.get(groupIndex).conditions();
     }
 
+    private List<pl.sk.ocr.config.dto.AnchorDto> anchors() {
+        return viewModel.draft() == null || viewModel.draft().anchors() == null ? List.of() : viewModel.draft().anchors();
+    }
+
+    private pl.sk.ocr.config.dto.AnchorDto anchor(int anchorIndex) {
+        var anchors = anchors();
+        if (anchorIndex < 0 || anchorIndex >= anchors.size()) {
+            return null;
+        }
+        return anchors.get(anchorIndex);
+    }
+
     private pl.sk.ocr.config.dto.ConditionDto condition(int groupIndex, int conditionIndex) {
         var conditions = conditions(groupIndex);
         if (conditionIndex < 0 || conditionIndex >= conditions.size()) {
             return null;
         }
         return conditions.get(conditionIndex);
+    }
+
+    private pl.sk.ocr.config.dto.ConditionDto selectedCondition() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.CONDITION) {
+            return null;
+        }
+        return condition(selected.index(), selected.childIndex());
+    }
+
+    private pl.sk.ocr.config.dto.AnchorDto selectedAnchor() {
+        var selected = selectedTreeNode();
+        if (selected == null || selected.type() != TreeNodeType.ANCHOR) {
+            return null;
+        }
+        return anchor(selected.index());
     }
 
     private String selectedTreeNodeId() {
@@ -1424,11 +2032,22 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private final class PaneOverlay extends javafx.scene.layout.Pane {
+        private static final double REGION_HIT_TOLERANCE = 6.0;
+        private static final double MIN_REGION_SIZE = 1.0;
         private final ImageView imageView;
         private ScaledCoordinateMapper mapper = new ScaledCoordinateMapper(1, 0, 0);
         private ViewerMode mode = ViewerMode.SELECT;
         private ViewerPoint dragStart;
         private Rectangle draftRegion;
+        private final List<EditableRegion> editableRegions = new ArrayList<>();
+        private EditableRegion activeEditableRegion;
+        private RegionDragMode regionDragMode = RegionDragMode.NONE;
+        private double regionDragStartX;
+        private double regionDragStartY;
+        private double regionStartX;
+        private double regionStartY;
+        private double regionStartWidth;
+        private double regionStartHeight;
 
         PaneOverlay(ImageView imageView) {
             this.imageView = imageView;
@@ -1436,6 +2055,19 @@ public final class ConfiguratorApplication extends Application {
             setPadding(new Insets(12));
             imageView.setPreserveRatio(true);
             setOnMousePressed(event -> {
+                if (mode == ViewerMode.SELECT) {
+                    regionDragMode = hitEditableRegion(event.getX(), event.getY()).mode();
+                    if (regionDragMode != RegionDragMode.NONE) {
+                        regionDragStartX = event.getX();
+                        regionDragStartY = event.getY();
+                        regionStartX = activeEditableRegion.rectangle().getX();
+                        regionStartY = activeEditableRegion.rectangle().getY();
+                        regionStartWidth = activeEditableRegion.rectangle().getWidth();
+                        regionStartHeight = activeEditableRegion.rectangle().getHeight();
+                        event.consume();
+                    }
+                    return;
+                }
                 if (mode != ViewerMode.DRAW_REGION) {
                     return;
                 }
@@ -1448,6 +2080,12 @@ public final class ConfiguratorApplication extends Application {
                 event.consume();
             });
             setOnMouseDragged(event -> {
+                if (mode == ViewerMode.SELECT && regionDragMode != RegionDragMode.NONE && activeEditableRegion != null) {
+                    updateEditableRegionDrag(event.getX(), event.getY());
+                    updateSelectedEditableRegionFromViewer(activeEditableRegion.type(), screenRegion(activeEditableRegion.rectangle()), false);
+                    event.consume();
+                    return;
+                }
                 if (mode != ViewerMode.DRAW_REGION || dragStart == null || draftRegion == null) {
                     return;
                 }
@@ -1460,6 +2098,16 @@ public final class ConfiguratorApplication extends Application {
                 event.consume();
             });
             setOnMouseReleased(event -> {
+                if (mode == ViewerMode.SELECT && regionDragMode != RegionDragMode.NONE) {
+                    if (activeEditableRegion != null) {
+                        updateSelectedEditableRegionFromViewer(activeEditableRegion.type(), screenRegion(activeEditableRegion.rectangle()), true);
+                    }
+                    regionDragMode = RegionDragMode.NONE;
+                    activeEditableRegion = null;
+                    updateSelectCursor(event.getX(), event.getY());
+                    event.consume();
+                    return;
+                }
                 if (mode != ViewerMode.DRAW_REGION || dragStart == null) {
                     return;
                 }
@@ -1473,9 +2121,19 @@ public final class ConfiguratorApplication extends Application {
                 dragStart = null;
                 draftRegion = null;
                 if (width > 0 && height > 0) {
-                    applyDrawnRegion(new RegionDto(x, y, width, height));
+                    applyDrawnRegion(roundedRegion(x, y, width, height));
                 }
                 event.consume();
+            });
+            setOnMouseMoved(event -> {
+                if (mode == ViewerMode.SELECT) {
+                    updateSelectCursor(event.getX(), event.getY());
+                }
+            });
+            setOnMouseExited(event -> {
+                if (mode == ViewerMode.SELECT && regionDragMode == RegionDragMode.NONE) {
+                    setCursor(Cursor.DEFAULT);
+                }
             });
             setOnMouseClicked(event -> {
                 if (mode == ViewerMode.DRAW_REGION) {
@@ -1507,19 +2165,152 @@ public final class ConfiguratorApplication extends Application {
 
         void mode(ViewerMode mode) {
             this.mode = mode;
-            setCursor(switch (mode) {
-                case PAN -> Cursor.MOVE;
-                case DRAW_REGION -> Cursor.CROSSHAIR;
-                case SELECT -> Cursor.DEFAULT;
-            });
+            regionDragMode = RegionDragMode.NONE;
+            setCursor(cursorForMode(mode));
         }
 
         void addOverlay(Rectangle rectangle) {
             getChildren().add(rectangle);
         }
 
+        void editableRegion(Rectangle rectangle, RegionTargetType type) {
+            editableRegions.add(new EditableRegion(rectangle, type));
+        }
+
+        void clearEditableRegions() {
+            editableRegions.clear();
+            activeEditableRegion = null;
+        }
+
         void clearOverlay() {
             getChildren().removeIf(node -> node != imageView);
+            draftRegion = null;
+            clearEditableRegions();
+            regionDragMode = RegionDragMode.NONE;
+        }
+
+        private Cursor cursorForMode(ViewerMode mode) {
+            return switch (mode) {
+                case PAN -> Cursor.MOVE;
+                case DRAW_REGION -> Cursor.CROSSHAIR;
+                case SELECT -> Cursor.DEFAULT;
+            };
+        }
+
+        private void updateSelectCursor(double x, double y) {
+            setCursor(cursorForRegionDragMode(hitEditableRegion(x, y).mode()));
+        }
+
+        private Cursor cursorForRegionDragMode(RegionDragMode dragMode) {
+            return switch (dragMode) {
+                case MOVE -> Cursor.MOVE;
+                case LEFT, RIGHT -> Cursor.H_RESIZE;
+                case TOP, BOTTOM -> Cursor.V_RESIZE;
+                case TOP_LEFT, BOTTOM_RIGHT -> Cursor.NW_RESIZE;
+                case TOP_RIGHT, BOTTOM_LEFT -> Cursor.NE_RESIZE;
+                case NONE -> Cursor.DEFAULT;
+            };
+        }
+
+        private RegionHit hitEditableRegion(double x, double y) {
+            for (int i = editableRegions.size() - 1; i >= 0; i--) {
+                var editableRegion = editableRegions.get(i);
+                var dragMode = hitRegion(editableRegion.rectangle(), x, y);
+                if (dragMode != RegionDragMode.NONE) {
+                    activeEditableRegion = editableRegion;
+                    return new RegionHit(editableRegion, dragMode);
+                }
+            }
+            activeEditableRegion = null;
+            return new RegionHit(null, RegionDragMode.NONE);
+        }
+
+        private RegionDragMode hitRegion(Rectangle rectangle, double x, double y) {
+            if (rectangle == null || rectangle.getWidth() <= 0 || rectangle.getHeight() <= 0) {
+                return RegionDragMode.NONE;
+            }
+            var left = rectangle.getX();
+            var top = rectangle.getY();
+            var right = left + rectangle.getWidth();
+            var bottom = top + rectangle.getHeight();
+            var withinExpanded = x >= left - REGION_HIT_TOLERANCE
+                && x <= right + REGION_HIT_TOLERANCE
+                && y >= top - REGION_HIT_TOLERANCE
+                && y <= bottom + REGION_HIT_TOLERANCE;
+            if (!withinExpanded) {
+                return RegionDragMode.NONE;
+            }
+            var nearLeft = Math.abs(x - left) <= REGION_HIT_TOLERANCE;
+            var nearRight = Math.abs(x - right) <= REGION_HIT_TOLERANCE;
+            var nearTop = Math.abs(y - top) <= REGION_HIT_TOLERANCE;
+            var nearBottom = Math.abs(y - bottom) <= REGION_HIT_TOLERANCE;
+            if (nearLeft && nearTop) {
+                return RegionDragMode.TOP_LEFT;
+            }
+            if (nearRight && nearTop) {
+                return RegionDragMode.TOP_RIGHT;
+            }
+            if (nearLeft && nearBottom) {
+                return RegionDragMode.BOTTOM_LEFT;
+            }
+            if (nearRight && nearBottom) {
+                return RegionDragMode.BOTTOM_RIGHT;
+            }
+            if (nearLeft) {
+                return RegionDragMode.LEFT;
+            }
+            if (nearRight) {
+                return RegionDragMode.RIGHT;
+            }
+            if (nearTop) {
+                return RegionDragMode.TOP;
+            }
+            if (nearBottom) {
+                return RegionDragMode.BOTTOM;
+            }
+            if (x >= left && x <= right && y >= top && y <= bottom) {
+                return RegionDragMode.MOVE;
+            }
+            return RegionDragMode.NONE;
+        }
+
+        private void updateEditableRegionDrag(double x, double y) {
+            var dx = x - regionDragStartX;
+            var dy = y - regionDragStartY;
+            var left = regionStartX;
+            var top = regionStartY;
+            var right = regionStartX + regionStartWidth;
+            var bottom = regionStartY + regionStartHeight;
+            switch (regionDragMode) {
+                case MOVE -> {
+                    left = regionStartX + dx;
+                    right = left + regionStartWidth;
+                    top = regionStartY + dy;
+                    bottom = top + regionStartHeight;
+                }
+                case LEFT, TOP_LEFT, BOTTOM_LEFT -> left = Math.min(right - MIN_REGION_SIZE, regionStartX + dx);
+                case RIGHT, TOP_RIGHT, BOTTOM_RIGHT -> right = Math.max(left + MIN_REGION_SIZE, regionStartX + regionStartWidth + dx);
+                case TOP -> top = Math.min(bottom - MIN_REGION_SIZE, regionStartY + dy);
+                case BOTTOM -> bottom = Math.max(top + MIN_REGION_SIZE, regionStartY + regionStartHeight + dy);
+                case NONE -> {
+                }
+            }
+            if (regionDragMode == RegionDragMode.TOP_LEFT || regionDragMode == RegionDragMode.TOP_RIGHT) {
+                top = Math.min(bottom - MIN_REGION_SIZE, regionStartY + dy);
+            }
+            if (regionDragMode == RegionDragMode.BOTTOM_LEFT || regionDragMode == RegionDragMode.BOTTOM_RIGHT) {
+                bottom = Math.max(top + MIN_REGION_SIZE, regionStartY + regionStartHeight + dy);
+            }
+            activeEditableRegion.rectangle().setX(left);
+            activeEditableRegion.rectangle().setY(top);
+            activeEditableRegion.rectangle().setWidth(right - left);
+            activeEditableRegion.rectangle().setHeight(bottom - top);
+        }
+
+        private RegionDto screenRegion(Rectangle rectangle) {
+            var topLeft = mapper.screenToImage(new ViewerPoint(rectangle.getX(), rectangle.getY()));
+            var bottomRight = mapper.screenToImage(new ViewerPoint(rectangle.getX() + rectangle.getWidth(), rectangle.getY() + rectangle.getHeight()));
+            return roundedRegion(topLeft.x(), topLeft.y(), bottomRight.x() - topLeft.x(), bottomRight.y() - topLeft.y());
         }
     }
 
@@ -1553,11 +2344,33 @@ public final class ConfiguratorApplication extends Application {
         PIPELINE_STEP
     }
 
-    private record RegionEditTarget(RegionTargetType type, int index) {
+    private record RegionEditTarget(RegionTargetType type, int index, int childIndex) {
+    }
+
+    private record EditableRegion(Rectangle rectangle, RegionTargetType type) {
+    }
+
+    private record RegionHit(EditableRegion region, RegionDragMode mode) {
     }
 
     private enum RegionTargetType {
-        FIELD_REGION
+        FIELD_REGION,
+        CONDITION_SEARCH_REGION,
+        ANCHOR_SEARCH_REGION,
+        ANCHOR_REFERENCE_BOUNDS
+    }
+
+    private enum RegionDragMode {
+        NONE,
+        MOVE,
+        LEFT,
+        RIGHT,
+        TOP,
+        BOTTOM,
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_LEFT,
+        BOTTOM_RIGHT
     }
 
     private enum ViewerMode {

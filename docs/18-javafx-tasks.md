@@ -186,7 +186,16 @@ Zakres:
 - rysowanie prostokąta na overlay,
 - normalizacja regionu niezależnie od kierunku przeciągania,
 - zapis regionu w koordynatach obrazu/reference,
-- pokazanie aktualnego regionu w panelu properties.
+- pokazanie aktualnego regionu w panelu properties,
+- overlay aktywnie edytowanego regionu jest pojedynczym stanem roboczym: po narysowaniu nowego regionu poprzednia ramka dla tej samej właściwości znika,
+- ramka aktualnie wybranej właściwości typu `Region` jest prezentowana tylko wtedy, gdy region ma kompletne i poprawne współrzędne,
+- ręczna zmiana wartości współrzędnych w panelu properties natychmiast odświeża ramkę na viewerze,
+- w trybie `Select` najechanie na wnętrze aktywnej ramki zmienia kursor na `move` i pozwala przesunąć całą ramkę metodą click-drag,
+- w trybie `Select` najechanie na lewą/prawą albo górną/dolną krawędź aktywnej ramki zmienia kursor odpowiednio na resize poziomy albo pionowy i pozwala przesuwać wybraną krawędź,
+- w trybie `Select` najechanie na narożnik aktywnej ramki zmienia kursor na resize diagonalny i pozwala przesuwać dwie krawędzie jednocześnie,
+- przesunięcie lub resize aktywnej ramki aktualizuje współrzędne w panelu properties i zapisuje zmianę przez tę samą ścieżkę ViewModel/`CategoryDraftEditor`,
+- jeśli wybrany element posiada edytowalną właściwość typu `Region`, narzędzie `Draw Region` można aktywować z pionowego toolbaru bez wcześniejszego kliknięcia przycisku przy konkretnej właściwości,
+- ramki innych typów obiektów albo innych warstw overlay są prezentowane dopiero po włączeniu odpowiedniej warstwy w `FX-011`.
 
 Kryteria akceptacji:
 
@@ -195,6 +204,10 @@ Kryteria akceptacji:
 - `Draw Region` nie zapisuje regionu bez jawnego targetu z panelu properties,
 - anulowanie `Esc` lub utrata aktywnego targetu nie zmienia draftu,
 - po narysowaniu regionu właściwa kontrolka properties pokazuje nowe wartości,
+- po narysowaniu kolejnego regionu dla tej samej właściwości na viewerze pozostaje tylko nowa ramka,
+- niepełny lub błędny region nie jest prezentowany jako ramka,
+- w trybie `Select` aktywną ramkę można przesuwać i zmieniać jej rozmiar przez przeciąganie wnętrza, krawędzi albo narożników,
+- w trybach `Pan` i `Draw Region` kursory oraz zachowanie myszy pozostają zgodne z wybranym trybem i nie uruchamiają edycji istniejącej ramki,
 - są testy coordinate mapping i region normalization.
 
 ### FX-011 Viewer Layers
@@ -353,13 +366,24 @@ Zakres:
 - `searchRegion`,
 - matcher,
 - detector,
-- parameters.
+- parameters,
+- pola `searchRegion.x`, `searchRegion.y`, `searchRegion.width` i `searchRegion.height` prezentowane jako numeric inputy ze spinnerem po prawej stronie,
+- klawisze `Up` i `Down` w polach numeric zwiększają albo zmniejszają wartość,
+- panel właściwości condition dzieli pola na title-pane `Identification` zawierający `group`, `condition`, `type`, `page`, `expectedText`, `matcher.id`, `detector.id` oraz title-pane `Search Region` zawierający `x`, `y`, `width`, `height`,
+- przyciski operacji condition oraz pozostałe informacje są prezentowane poniżej sekcji `Identification` i `Search Region`,
+- ręczna edycja współrzędnych odświeża ramkę search region na podglądzie dokumentu,
+- wybór condition z kompletnym i poprawnym `searchRegion` pokazuje jego ramkę na aktualnej stronie,
+- wybór condition bez `searchRegion`, z niepełnym `searchRegion` albo z błędnymi wartościami ukrywa ramkę,
+- region narysowany na viewerze zastępuje poprzedni `searchRegion` tego condition, zamiast dodawać kolejną ramkę,
+- aktywną ramkę `searchRegion` można przesunąć lub zmienić jej rozmiar w trybie `Select`, a formularz współrzędnych aktualizuje się automatycznie.
 
 Kryteria akceptacji:
 
 - dla TEXT widoczne są pola tekstowe i matcher,
 - dla QR/BARCODE widoczne są ustawienia detector/matcher,
-- region może pochodzić z aktualnego zaznaczenia viewera.
+- region może pochodzić z aktualnego zaznaczenia viewera,
+- zmiana współrzędnych w formularzu i rysowanie regionu na viewerze korzystają z tej samej ścieżki aktualizacji draftu,
+- overlay condition pokazuje wyłącznie region aktualnie zaznaczonego condition, dopóki nie zostaną dodane przełączalne warstwy dla pozostałych regionów.
 
 ### FX-032 Test Identification
 
