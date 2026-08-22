@@ -1289,36 +1289,47 @@ Typy Tess4J nie powinny przenikać do Domain.
 ## 88. PageOcrResult
 
 ```java
-@Value
-@Builder
-public class PageOcrResult {
-    PageNumber page;
-    List<OcrElement> elements;
-    String plainText;
-    Double meanConfidence;
+public record OcrText(
+    String value,
+    String hocr,
+    List<OcrArea> areas
+) {
+    List<OcrParagraph> paragraphs();
+    List<OcrLine> lines();
+    List<OcrWord> words();
 }
 ```
 
-## 89. OcrElement
+`areas` są źródłem prawdy dla struktury OCR. Metody `paragraphs()`, `lines()` i `words()` są projekcjami wyliczanymi z tej struktury, aby uniknąć niespójności między modelem hierarchicznym i płaską listą słów.
+
+`hocr` przechowuje surowy wynik OCR jako artefakt diagnostyczny i źródło do ewentualnego ponownego parsowania.
+
+## 89. Hierarchia OCR
 
 ```java
-@Value
-@Builder
-public class OcrElement {
-    OcrElementType type;
-    String text;
-    BoundingBox bounds;
-    Double confidence;
+public record OcrArea(
+    BoundingBox boundingBox,
+    List<OcrParagraph> paragraphs
+) {
 }
-```
 
-## 90. OcrElementType
+public record OcrParagraph(
+    BoundingBox boundingBox,
+    List<OcrLine> lines
+) {
+}
 
-```java
-public enum OcrElementType {
-    WORD,
-    LINE,
-    BLOCK
+public record OcrLine(
+    BoundingBox boundingBox,
+    List<OcrWord> words
+) {
+}
+
+public record OcrWord(
+    String text,
+    BoundingBox boundingBox,
+    Confidence confidence
+) {
 }
 ```
 
