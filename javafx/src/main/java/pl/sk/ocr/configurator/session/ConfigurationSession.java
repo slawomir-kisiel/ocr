@@ -4,6 +4,8 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import pl.sk.ocr.config.dto.CategoryDto;
+import pl.sk.ocr.configurator.app.InMemoryTraceImageStore;
+import pl.sk.ocr.configurator.app.TraceImageStore;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
@@ -18,6 +20,7 @@ public final class ConfigurationSession {
     private ProcessingTrace latestTrace = ProcessingTrace.off();
     private final Map<PageNumber, ProcessingImage> pageCache = new ConcurrentHashMap<>();
     private final Map<PageNumber, OcrText> ocrCache = new ConcurrentHashMap<>();
+    private final TraceImageStore traceImageStore = new InMemoryTraceImageStore();
 
     public Path categoryPath() {
         return categoryPath;
@@ -87,8 +90,13 @@ public final class ConfigurationSession {
         return ocrCache;
     }
 
+    public TraceImageStore traceImageStore() {
+        return traceImageStore;
+    }
+
     public void clearDownstreamCaches() {
         ocrCache.clear();
         latestTrace = ProcessingTrace.off();
+        traceImageStore.clear();
     }
 }

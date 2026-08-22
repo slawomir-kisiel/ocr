@@ -7,7 +7,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import pl.sk.ocr.config.dto.*;
 import pl.sk.ocr.config.runtime.OcrSettings;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
+import pl.sk.ocr.configurator.app.FieldPreviewResult;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
+import pl.sk.ocr.configurator.app.PreviewFieldUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.async.BackgroundExecutor;
 import pl.sk.ocr.configurator.async.PreviewRunGuard;
@@ -23,6 +25,7 @@ public final class CategoryEditorViewModel {
     private final ConfigurationFileService fileService;
     private final OpenReferenceDocumentUseCase openDocument;
     private final RunPageOcrUseCase runOcr;
+    private final PreviewFieldUseCase previewField;
     private final DraftValidationService validationService;
     private final BackgroundExecutor backgroundExecutor;
     private final CategoryDraftEditor draftEditor;
@@ -31,17 +34,18 @@ public final class CategoryEditorViewModel {
     private final AtomicReference<List<DraftValidationProblem>> validationProblems = new AtomicReference<>(List.of());
 
     public CategoryEditorViewModel(ConfigurationFileService fileService, OpenReferenceDocumentUseCase openDocument,
-                                   RunPageOcrUseCase runOcr, DraftValidationService validationService,
+                                   RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, DraftValidationService validationService,
                                    BackgroundExecutor backgroundExecutor) {
-        this(fileService, openDocument, runOcr, validationService, backgroundExecutor, new CategoryDraftEditor());
+        this(fileService, openDocument, runOcr, previewField, validationService, backgroundExecutor, new CategoryDraftEditor());
     }
 
     CategoryEditorViewModel(ConfigurationFileService fileService, OpenReferenceDocumentUseCase openDocument,
-                            RunPageOcrUseCase runOcr, DraftValidationService validationService,
+                            RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, DraftValidationService validationService,
                             BackgroundExecutor backgroundExecutor, CategoryDraftEditor draftEditor) {
         this.fileService = fileService;
         this.openDocument = openDocument;
         this.runOcr = runOcr;
+        this.previewField = previewField;
         this.validationService = validationService;
         this.backgroundExecutor = backgroundExecutor;
         this.draftEditor = draftEditor;
@@ -180,6 +184,10 @@ public final class CategoryEditorViewModel {
         replaceDraft(draftEditor.moveImageProcessor(requireDraft(), fieldIndex, fromIndex, toIndex));
     }
 
+    public void duplicateImageProcessor(int fieldIndex, int stepIndex) {
+        replaceDraft(draftEditor.duplicateImageProcessor(requireDraft(), fieldIndex, stepIndex));
+    }
+
     public void addTransformer(int fieldIndex, ExtensionRefDto step) {
         replaceDraft(draftEditor.addTransformer(requireDraft(), fieldIndex, step));
     }
@@ -192,6 +200,10 @@ public final class CategoryEditorViewModel {
         replaceDraft(draftEditor.moveTransformer(requireDraft(), fieldIndex, fromIndex, toIndex));
     }
 
+    public void duplicateTransformer(int fieldIndex, int stepIndex) {
+        replaceDraft(draftEditor.duplicateTransformer(requireDraft(), fieldIndex, stepIndex));
+    }
+
     public void addValidator(int fieldIndex, ExtensionRefDto step) {
         replaceDraft(draftEditor.addValidator(requireDraft(), fieldIndex, step));
     }
@@ -202,6 +214,10 @@ public final class CategoryEditorViewModel {
 
     public void moveValidator(int fieldIndex, int fromIndex, int toIndex) {
         replaceDraft(draftEditor.moveValidator(requireDraft(), fieldIndex, fromIndex, toIndex));
+    }
+
+    public void duplicateValidator(int fieldIndex, int stepIndex) {
+        replaceDraft(draftEditor.duplicateValidator(requireDraft(), fieldIndex, stepIndex));
     }
 
     public CompletionStage<Void> openReferenceDocument(Path path) {
@@ -230,6 +246,34 @@ public final class CategoryEditorViewModel {
                 return result;
             }
             return session.ocrCache().get(pageNumber);
+        });
+    }
+
+    public CompletionStage<FieldPreviewResult> previewField(int fieldIndex) {
+        var draft = requireDraft();
+        var fields = draft.fields() == null ? List.<FieldDto>of() : draft.fields();
+        if (fieldIndex < 0 || fieldIndex >= fields.size()) {
+            throw new IllegalArgumentException("Invalid field index " + fieldIndex + " for size " + fields.size());
+        }
+        if (previewField == null) {
+            throw new IllegalStateException("Field preview is not configured");
+        }
+        var field = fields.get(fieldIndex);
+        var pageNumber = new PageNumber(field.page() == null ? session.currentPage() : field.page());
+        var pageImage = session.pageCache().get(pageNumber);
+        if (pageImage == null) {
+            throw new IllegalStateException("No rendered page is available for field page " + pageNumber.value());
+        }
+        var runId = previewRunGuard.next();
+        status.set("Running field preview...");
+        return backgroundExecutor.submit(() -> previewField.preview(draft, field, pageImage, session.traceImageStore())).thenApply(result -> {
+            if (previewRunGuard.isLatest(runId)) {
+                session.latestTrace(result.trace());
+                status.set("Field preview ready: " + result.fieldResult().fieldId().value()
+                    + " | " + result.fieldResult().status());
+                return result;
+            }
+            return new FieldPreviewResult(null, session.latestTrace());
         });
     }
 
