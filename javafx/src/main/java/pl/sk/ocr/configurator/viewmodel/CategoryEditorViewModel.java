@@ -11,6 +11,7 @@ import pl.sk.ocr.configurator.app.FieldPreviewResult;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.PreviewFieldUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
+import pl.sk.ocr.configurator.app.TestCategoryUseCase;
 import pl.sk.ocr.configurator.async.BackgroundExecutor;
 import pl.sk.ocr.configurator.async.PreviewRunGuard;
 import pl.sk.ocr.configurator.draft.CategoryDraftEditor;
@@ -19,6 +20,7 @@ import pl.sk.ocr.configurator.validation.DraftValidationProblem;
 import pl.sk.ocr.configurator.validation.DraftValidationService;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.result.DocumentResult;
 
 public final class CategoryEditorViewModel {
     private final ConfigurationSession session = new ConfigurationSession();
@@ -26,6 +28,7 @@ public final class CategoryEditorViewModel {
     private final OpenReferenceDocumentUseCase openDocument;
     private final RunPageOcrUseCase runOcr;
     private final PreviewFieldUseCase previewField;
+    private final TestCategoryUseCase testCategory;
     private final DraftValidationService validationService;
     private final BackgroundExecutor backgroundExecutor;
     private final CategoryDraftEditor draftEditor;
@@ -36,16 +39,23 @@ public final class CategoryEditorViewModel {
     public CategoryEditorViewModel(ConfigurationFileService fileService, OpenReferenceDocumentUseCase openDocument,
                                    RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, DraftValidationService validationService,
                                    BackgroundExecutor backgroundExecutor) {
-        this(fileService, openDocument, runOcr, previewField, validationService, backgroundExecutor, new CategoryDraftEditor());
+        this(fileService, openDocument, runOcr, previewField, null, validationService, backgroundExecutor, new CategoryDraftEditor());
+    }
+
+    public CategoryEditorViewModel(ConfigurationFileService fileService, OpenReferenceDocumentUseCase openDocument,
+                                   RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, TestCategoryUseCase testCategory,
+                                   DraftValidationService validationService, BackgroundExecutor backgroundExecutor) {
+        this(fileService, openDocument, runOcr, previewField, testCategory, validationService, backgroundExecutor, new CategoryDraftEditor());
     }
 
     CategoryEditorViewModel(ConfigurationFileService fileService, OpenReferenceDocumentUseCase openDocument,
-                            RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, DraftValidationService validationService,
+                            RunPageOcrUseCase runOcr, PreviewFieldUseCase previewField, TestCategoryUseCase testCategory, DraftValidationService validationService,
                             BackgroundExecutor backgroundExecutor, CategoryDraftEditor draftEditor) {
         this.fileService = fileService;
         this.openDocument = openDocument;
         this.runOcr = runOcr;
         this.previewField = previewField;
+        this.testCategory = testCategory;
         this.validationService = validationService;
         this.backgroundExecutor = backgroundExecutor;
         this.draftEditor = draftEditor;
@@ -275,6 +285,30 @@ public final class CategoryEditorViewModel {
                 return result;
             }
             return new FieldPreviewResult(null, session.latestTrace());
+        });
+    }
+
+    public CompletionStage<DocumentResult> testCategory() {
+        var draft = requireDraft();
+        if (testCategory == null) {
+            throw new IllegalStateException("Category test is not configured");
+        }
+        if (session.referenceDocument() == null) {
+            throw new IllegalStateException("No reference document is open");
+        }
+        if (session.pageCache().isEmpty()) {
+            throw new IllegalStateException("No rendered document pages are available");
+        }
+        var runId = previewRunGuard.next();
+        status.set("Running category test...");
+        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache())).thenApply(result -> {
+            if (previewRunGuard.isLatest(runId)) {
+                session.latestDocumentResult(result);
+                session.latestTrace(result.trace());
+                status.set("Category test ready: " + result.status());
+                return result;
+            }
+            return session.latestDocumentResult();
         });
     }
 

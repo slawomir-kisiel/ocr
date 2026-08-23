@@ -3,6 +3,7 @@ package pl.sk.ocr.configurator.app;
 import pl.sk.ocr.adapter.pdfbox.PdfBoxDocumentReader;
 import pl.sk.ocr.adapter.tess4j.Tess4jOcrEngine;
 import pl.sk.ocr.config.JsonConfigurationMapper;
+import pl.sk.ocr.config.CategoryRuntimeMapper;
 import pl.sk.ocr.configurator.async.ExecutorBackgroundExecutor;
 import pl.sk.ocr.configurator.validation.DraftValidationService;
 import pl.sk.ocr.core.document.DocumentReader;
@@ -17,7 +18,8 @@ public record ConfiguratorServices(
     pl.sk.ocr.extension.api.ExtensionRegistry extensionRegistry,
     ExecutorBackgroundExecutor backgroundExecutor,
     DraftValidationService validationService,
-    PreviewFieldUseCase previewField
+    PreviewFieldUseCase previewField,
+    TestCategoryUseCase testCategory
 ) {
     public static ConfiguratorServices production() {
         var registry = ServiceLoaderExtensionRegistryFactory.load(ConfiguratorServices.class.getClassLoader());
@@ -29,7 +31,8 @@ public record ConfiguratorServices(
             registry,
             new ExecutorBackgroundExecutor(),
             new DraftValidationService(registry),
-            new PreviewFieldUseCase(new FieldProcessingService(ocrEngine, registry))
+            new PreviewFieldUseCase(new FieldProcessingService(ocrEngine, registry)),
+            new TestCategoryUseCase(ocrEngine, registry, new CategoryRuntimeMapper())
         );
     }
 }

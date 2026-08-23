@@ -8,6 +8,7 @@ import pl.sk.ocr.configurator.app.InMemoryTraceImageStore;
 import pl.sk.ocr.configurator.app.TraceImageStore;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.result.DocumentResult;
 import pl.sk.ocr.domain.result.FieldResult;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
@@ -20,6 +21,7 @@ public final class ConfigurationSession {
     private boolean dirty;
     private ProcessingTrace latestTrace = ProcessingTrace.off();
     private FieldResult latestFieldResult;
+    private DocumentResult latestDocumentResult;
     private final Map<PageNumber, ProcessingImage> pageCache = new ConcurrentHashMap<>();
     private final Map<PageNumber, OcrText> ocrCache = new ConcurrentHashMap<>();
     private final TraceImageStore traceImageStore = new InMemoryTraceImageStore();
@@ -92,6 +94,14 @@ public final class ConfigurationSession {
         this.latestFieldResult = latestFieldResult;
     }
 
+    public DocumentResult latestDocumentResult() {
+        return latestDocumentResult;
+    }
+
+    public void latestDocumentResult(DocumentResult latestDocumentResult) {
+        this.latestDocumentResult = latestDocumentResult;
+    }
+
     public Map<PageNumber, ProcessingImage> pageCache() {
         return pageCache;
     }
@@ -108,6 +118,7 @@ public final class ConfigurationSession {
         ocrCache.clear();
         latestTrace = ProcessingTrace.off();
         latestFieldResult = null;
+        latestDocumentResult = null;
         traceImageStore.clear();
     }
 }

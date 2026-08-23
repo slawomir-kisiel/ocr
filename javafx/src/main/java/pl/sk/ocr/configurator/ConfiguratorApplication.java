@@ -107,6 +107,7 @@ public final class ConfiguratorApplication extends Application {
             new OpenReferenceDocumentUseCase(services.documentReader()),
             new RunPageOcrUseCase(services.ocrEngine()),
             services.previewField(),
+            services.testCategory(),
             services.validationService(),
             services.backgroundExecutor()
         );
@@ -164,7 +165,7 @@ public final class ConfiguratorApplication extends Application {
         var openDocument = button("Open Document", () -> chooseDocument(stage));
         var runOcr = button("Run OCR", this::runOcr);
         var previewField = button("Preview Field", this::previewField);
-        var testCategory = button("Test Category", this::validate);
+        var testCategory = button("Test Category", this::testCategory);
         var validate = button("Validate", this::validate);
         return new ToolBar(newCategory, openConfig, save, saveAs, new Separator(), openDocument,
             new Separator(), runOcr, previewField, testCategory, validate);
@@ -457,6 +458,20 @@ public final class ConfiguratorApplication extends Application {
                 } else {
                     refreshAll();
                     fieldResultPanel.refresh();
+                    traceViewerPanel.refresh();
+                }
+            }));
+    }
+
+    private void testCategory() {
+        commitCurrentDetailsForm();
+        status.setText("Running category test...");
+        viewModel.testCategory()
+            .whenComplete((result, error) -> Platform.runLater(() -> {
+                if (error != null) {
+                    showError(error);
+                } else {
+                    refreshAll();
                     traceViewerPanel.refresh();
                 }
             }));

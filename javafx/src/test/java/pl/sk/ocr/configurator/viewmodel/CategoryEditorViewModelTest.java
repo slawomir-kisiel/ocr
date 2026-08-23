@@ -9,14 +9,13 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.Test;
+import pl.sk.ocr.config.CategoryRuntimeMapper;
 import pl.sk.ocr.config.JsonConfigurationMapper;
-import pl.sk.ocr.config.dto.ExtensionRefDto;
-import pl.sk.ocr.config.dto.FieldDto;
-import pl.sk.ocr.config.dto.OutputDto;
-import pl.sk.ocr.config.dto.RegionDto;
+import pl.sk.ocr.config.dto.*;
 import pl.sk.ocr.configurator.app.PreviewFieldUseCase;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
+import pl.sk.ocr.configurator.app.TestCategoryUseCase;
 import pl.sk.ocr.configurator.async.BackgroundExecutor;
 import pl.sk.ocr.configurator.draft.CategoryDraftEditor;
 import pl.sk.ocr.configurator.validation.DraftValidationProblem;
@@ -27,6 +26,7 @@ import pl.sk.ocr.core.ocr.OcrOptions;
 import pl.sk.ocr.core.processing.FieldProcessingService;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.trace.TraceMode;
 import pl.sk.ocr.extension.api.DefaultExtensionRegistry;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
@@ -38,6 +38,7 @@ class CategoryEditorViewModelTest {
     void categoryMetadataChangeMarksDirtyAndRefreshesValidation() {
         var viewModel = new CategoryEditorViewModel(
             new ConfigurationFileService(null),
+            null,
             null,
             null,
             null,
@@ -66,6 +67,7 @@ class CategoryEditorViewModelTest {
             ))),
             null,
             null,
+            null,
             new DraftValidationService(new DefaultExtensionRegistry(List.of())),
             new ImmediateBackgroundExecutor(),
             new CategoryDraftEditor()
@@ -85,6 +87,7 @@ class CategoryEditorViewModelTest {
             null,
             null,
             new PreviewFieldUseCase(new FieldProcessingService(this::ocr, registry)),
+            null,
             new DraftValidationService(registry),
             new ImmediateBackgroundExecutor(),
             new CategoryDraftEditor()
@@ -127,6 +130,7 @@ class CategoryEditorViewModelTest {
             null,
             null,
             new PreviewFieldUseCase(service),
+            null,
             new DraftValidationService(registry),
             new ImmediateBackgroundExecutor(),
             new CategoryDraftEditor()
@@ -143,8 +147,57 @@ class CategoryEditorViewModelTest {
             .containsEntry("rawOcr", "");
     }
 
+    @Test
+    void categoryTestStoresLatestDocumentResult() {
+        var registry = new DefaultExtensionRegistry(new StandardExtensionProvider().extensions());
+        var ocrCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var testCategory = new TestCategoryUseCase((image, options) -> {
+            if (ocrCalls.incrementAndGet() == 1) {
+                return new OcrText("DOC", List.of());
+            }
+            return new OcrText(" 123 ", List.of());
+        }, registry, new CategoryRuntimeMapper());
+        var viewModel = new CategoryEditorViewModel(
+            new ConfigurationFileService((JsonConfigurationMapper) null),
+            null,
+            null,
+            null,
+            testCategory,
+            new DraftValidationService(registry),
+            new ImmediateBackgroundExecutor()
+        );
+        viewModel.session().openDraft(categoryWithOneField());
+        viewModel.session().referenceDocument(java.nio.file.Path.of("document.pdf"));
+        viewModel.session().pageCache().put(new PageNumber(1), image());
+
+        var result = viewModel.testCategory().toCompletableFuture().join();
+
+        assertThat(result.status()).isEqualTo(ProcessingStatus.SUCCESS);
+        assertThat(result.fields()).hasSize(1);
+        assertThat(result.fields().getFirst().value()).isEqualTo("123");
+        assertThat(viewModel.session().latestDocumentResult()).isEqualTo(result);
+        assertThat(viewModel.status()).contains("Category test ready");
+    }
+
     private OcrText ocr(ProcessingImage image, OcrOptions options) {
         return new OcrText(" 123 ", List.of());
+    }
+
+    private static CategoryDto categoryWithOneField() {
+        return new CategoryDto(
+            "1.0",
+            "invoice",
+            "1.0",
+            "Invoice",
+            "",
+            new PageSelectionDto("SINGLE", 1, null, null, null),
+            new OcrSettingsDto("pol", null),
+            new IdentificationDto(List.of(new ConditionGroupDto(List.of(new ConditionDto("TEXT", 1, "DOC", null, null, null))))),
+            new GeometryDto(0, 0, new GeometryStrategyDto("NONE", List.of())),
+            List.of(),
+            List.of(new FieldDto("amount", "Amount", 1, new RegionDto(0, 0, 10, 10), true, null,
+                new OutputDto(true, "amount"), List.of(), List.of(new ExtensionRefDto("trim", Map.of())), List.of()))
+        );
     }
 
     private static BufferedProcessingImage image() {
