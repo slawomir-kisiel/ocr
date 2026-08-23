@@ -8,6 +8,7 @@ public record CategoryDto(
     String version,
     String displayName,
     String description,
+    CategoryReferenceDocumentsDto referenceDocuments,
     PageSelectionDto pages,
     OcrSettingsDto ocr,
     IdentificationDto identification,

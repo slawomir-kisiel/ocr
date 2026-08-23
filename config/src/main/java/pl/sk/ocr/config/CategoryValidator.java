@@ -28,10 +28,33 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             problems.add(problem("CONFIGURATION_SCHEMA_UNSUPPORTED", "$.schemaVersion", "Only schemaVersion 1.0 is supported"));
         }
         validatePages(dto.pages(), "$.pages", problems);
+        validateReferenceDocuments(dto.referenceDocuments(), problems);
         validateIdentification(dto.identification(), problems);
         validateAnchors(dto.anchors(), dto.geometry(), problems);
         validateFields(dto.fields(), problems);
         return problems;
+    }
+
+    private void validateReferenceDocuments(CategoryReferenceDocumentsDto dto, List<ConfigurationProblem> problems) {
+        if (dto == null || dto.documents() == null || dto.documents().isEmpty()) {
+            return;
+        }
+        var ids = new HashSet<String>();
+        for (int i = 0; i < dto.documents().size(); i++) {
+            var document = dto.documents().get(i);
+            if (document == null) {
+                problems.add(problem("REFERENCE_DOCUMENT_INVALID", "$.referenceDocuments.documents[" + i + "]", "Reference document is required"));
+                continue;
+            }
+            required(document.id(), "$.referenceDocuments.documents[" + i + "].id", problems);
+            required(document.path(), "$.referenceDocuments.documents[" + i + "].path", problems);
+            if (document.id() != null && !document.id().isBlank() && !ids.add(document.id())) {
+                problems.add(problem("DUPLICATE_ID", "$.referenceDocuments.documents[" + i + "].id", "Duplicate reference document id"));
+            }
+        }
+        if (dto.active() != null && !dto.active().isBlank() && !ids.contains(dto.active())) {
+            problems.add(problem("REFERENCE_DOCUMENT_INVALID", "$.referenceDocuments.active", "Unknown active reference document: " + dto.active()));
+        }
     }
 
     private void validateIdentification(IdentificationDto dto, List<ConfigurationProblem> problems) {

@@ -190,6 +190,7 @@ class CategoryEditorViewModelTest {
             "1.0",
             "Invoice",
             "",
+            null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
             new IdentificationDto(List.of(new ConditionGroupDto(List.of(new ConditionDto("TEXT", 1, "DOC", null, null, null))))),

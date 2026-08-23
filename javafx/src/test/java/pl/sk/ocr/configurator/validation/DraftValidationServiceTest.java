@@ -19,6 +19,7 @@ class DraftValidationServiceTest {
             "1.0",
             "Broken",
             "",
+            null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
             new IdentificationDto(List.of()),

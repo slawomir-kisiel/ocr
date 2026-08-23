@@ -73,7 +73,7 @@ class PreviewFieldUseCaseTest {
     }
 
     private static CategoryDto category(FieldDto field) {
-        return new CategoryDto("1.0", "invoice", "1.0", "Invoice", "",
+        return new CategoryDto("1.0", "invoice", "1.0", "Invoice", "", null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             null,
             null,

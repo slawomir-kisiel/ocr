@@ -54,6 +54,7 @@ public final class ConfigurationFileService {
             "1.0",
             displayName == null || displayName.isBlank() ? normalizedId : displayName.trim(),
             "",
+            null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
             new IdentificationDto(java.util.List.of(new ConditionGroupDto(java.util.List.of(

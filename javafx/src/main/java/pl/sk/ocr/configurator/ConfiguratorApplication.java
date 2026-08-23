@@ -41,6 +41,8 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.CategoryDto;
+import pl.sk.ocr.config.dto.CategoryReferenceDocumentDto;
+import pl.sk.ocr.config.dto.CategoryReferenceDocumentsDto;
 import pl.sk.ocr.config.dto.DirectoriesDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.GeometryDto;
@@ -104,11 +106,13 @@ public final class ConfiguratorApplication extends Application {
     private final Button nextPage = compactButton(">", "Next Page", () -> changePage(1));
     private final TextField viewerPageNumber = new TextField("1");
     private final Label viewerPageTotal = new Label("/0");
+    private final ComboBox<CategoryReferenceDocumentDto> referenceDocumentSelector = new ComboBox<>();
     private Button selectMode;
     private Button panMode;
     private Button drawRegionMode;
     private double zoom = 1.0;
     private boolean refreshingDetails;
+    private boolean refreshingReferenceDocuments;
     private ViewerMode viewerMode = ViewerMode.SELECT;
     private RegionEditTarget regionEditTarget;
     private String pendingTreeSelectionId;
@@ -190,6 +194,7 @@ public final class ConfiguratorApplication extends Application {
         root.setCenter(center());
         root.setBottom(statusBar());
         refreshTree();
+        refreshReferenceDocuments();
         refreshDetails();
         return root;
     }
@@ -199,38 +204,30 @@ public final class ConfiguratorApplication extends Application {
         var openProfile = recentSplitButton("Open Profile", () -> chooseProfile(stage), RecentKey.PROFILE, path -> openRecentProfile(stage, path));
         var save = button("Save Profile", () -> saveProfile(stage, false));
         var saveAs = button("Save Profile As", () -> saveProfile(stage, true));
-        var openDocument = recentSplitButton("Open Document", () -> chooseDocument(stage), RecentKey.DOCUMENT, path -> openRecentDocument(path));
         var runOcr = button("Run OCR", this::runOcr);
         var previewField = button("Preview Field", this::previewField);
         var testCategory = button("Test Category", this::testCategory);
         var validate = button("Validate", this::validate);
         var settings = button("Settings", this::showSettings);
         var extensions = button("Extensions", this::showLoadedExtensions);
-        return new ToolBar(newProfile, openProfile, save, saveAs, new Separator(), openDocument,
-            new Separator(), runOcr, previewField, testCategory, validate, new Separator(), settings, extensions);
+        return new ToolBar(newProfile, openProfile, save, saveAs, new Separator(),
+            runOcr, previewField, testCategory, validate, new Separator(), settings, extensions);
     }
 
     private MenuBar menuBar(Stage stage) {
         var file = new Menu("File");
         var openRecentProfiles = new Menu("Open Recent Profile");
         openRecentProfiles.setOnShowing(event -> populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path)));
-        var openRecentDocuments = new Menu("Open Recent Document");
-        openRecentDocuments.setOnShowing(event -> populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument));
         file.setOnShowing(event -> {
             populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path));
-            populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
         });
         populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path));
-        populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
         file.getItems().addAll(
             menuItem("New Profile", () -> newProfile(stage), new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN)),
             menuItem("Open Profile", () -> chooseProfile(stage), new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN)),
             openRecentProfiles,
             menuItem("Save Profile", () -> saveProfile(stage, false), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN)),
             menuItem("Save Profile As", () -> saveProfile(stage, true), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
-            new SeparatorMenuItem(),
-            menuItem("Open Document", () -> chooseDocument(stage)),
-            openRecentDocuments,
             new SeparatorMenuItem(),
             menuItem("Exit", stage::close)
         );
@@ -515,12 +512,41 @@ public final class ConfiguratorApplication extends Application {
         zoomToolbar.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 0 1 0 0;");
 
         var content = new BorderPane(documentScroll);
+        content.setTop(referenceDocumentBar());
         content.setBottom(pageNavigator());
         var pane = new HBox(zoomToolbar, content);
         HBox.setHgrow(content, Priority.ALWAYS);
         HBox.setHgrow(documentScroll, Priority.ALWAYS);
         refreshViewerModeButtons();
         return pane;
+    }
+
+    private HBox referenceDocumentBar() {
+        referenceDocumentSelector.setMaxWidth(Double.MAX_VALUE);
+        referenceDocumentSelector.setPromptText("No reference document");
+        referenceDocumentSelector.setTooltip(new Tooltip("Reference documents configured for the selected category."));
+        referenceDocumentSelector.setCellFactory(view -> referenceDocumentCell());
+        referenceDocumentSelector.setButtonCell(referenceDocumentCell());
+        referenceDocumentSelector.setOnAction(event -> selectReferenceDocument(referenceDocumentSelector.getSelectionModel().getSelectedItem()));
+        var add = iconButton("plus.svg", "Add reference document", () -> addReferenceDocument(primaryStage));
+        var edit = iconButton("edit.svg", "Edit reference document description", () -> editReferenceDocument(primaryStage));
+        var remove = iconButton("eraser.svg", "Remove reference document", () -> removeReferenceDocument(primaryStage));
+        var bar = new HBox(6, referenceDocumentSelector, add, edit, remove);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(6, 8, 6, 8));
+        bar.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 0 0 1 0;");
+        HBox.setHgrow(referenceDocumentSelector, Priority.ALWAYS);
+        return bar;
+    }
+
+    private ListCell<CategoryReferenceDocumentDto> referenceDocumentCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(CategoryReferenceDocumentDto item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : referenceDocumentLabel(item));
+            }
+        };
     }
 
     private HBox pageNavigator() {
@@ -944,6 +970,7 @@ public final class ConfiguratorApplication extends Application {
         viewModel.session().categoryPath(entry.path());
         viewModel.session().openDraft(entry.draft());
         status.setText("Selected category: " + entry);
+        openActiveCategoryReferenceDocument();
     }
 
     private void refreshWorkspaceCategories() {
@@ -953,6 +980,277 @@ public final class ConfiguratorApplication extends Application {
         } else {
             profileCategorySelector.getSelectionModel().clearSelection();
         }
+    }
+
+    private void refreshReferenceDocuments() {
+        refreshingReferenceDocuments = true;
+        var selected = referenceDocumentSelector.getSelectionModel().getSelectedItem();
+        var documents = referenceDocuments(viewModel.draft());
+        referenceDocumentSelector.getItems().setAll(documents);
+        var active = activeReferenceDocument(viewModel.draft());
+        var toSelect = documents.stream()
+            .filter(document -> java.util.Objects.equals(document.id(), active))
+            .findFirst()
+            .orElse(selected == null ? null : documents.stream()
+                .filter(document -> java.util.Objects.equals(document.id(), selected.id()))
+                .findFirst()
+                .orElse(null));
+        if (toSelect != null) {
+            referenceDocumentSelector.getSelectionModel().select(toSelect);
+        } else {
+            referenceDocumentSelector.getSelectionModel().clearSelection();
+        }
+        refreshingReferenceDocuments = false;
+    }
+
+    private void addReferenceDocument(Stage stage) {
+        if (viewModel.draft() == null) {
+            status.setText("Select a category before adding reference document");
+            return;
+        }
+        if (viewModel.session().categoryPath() == null) {
+            status.setText("Save category before adding reference document");
+            return;
+        }
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().addAll(
+            new FileChooser.ExtensionFilter("Documents", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff"),
+            new FileChooser.ExtensionFilter("All files", "*.*")
+        );
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_DOCUMENT);
+        var file = chooser.showOpenDialog(stage);
+        if (file == null) {
+            return;
+        }
+        preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, file.toPath());
+        var id = uniqueReferenceDocumentId(file.toPath());
+        var relative = relativize(viewModel.session().categoryPath().toAbsolutePath().getParent(), file.toPath());
+        var document = new CategoryReferenceDocumentDto(id, relative, displayName(file.toPath()), "");
+        updateReferenceDocuments(addReferenceDocument(referenceDocuments(viewModel.draft()), document), id);
+        openDocumentPath(file.toPath());
+    }
+
+    private void editReferenceDocument(Stage stage) {
+        var selected = referenceDocumentSelector.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            status.setText("Select reference document to edit");
+            return;
+        }
+        var dialog = new Dialog<CategoryReferenceDocumentDto>();
+        dialog.initOwner(stage);
+        dialog.setTitle("Reference Document");
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        var path = new TextField(selected.path());
+        var displayName = new TextField(selected.displayName());
+        var description = new TextArea(selected.description());
+        description.setPrefRowCount(4);
+        var browse = iconButton("edit.svg", "Choose reference document file", () -> {
+            var chooser = new FileChooser();
+            chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Documents", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff"),
+                new FileChooser.ExtensionFilter("All files", "*.*")
+            );
+            configureInitialDirectory(chooser, DirectoryKey.OPEN_DOCUMENT);
+            var file = chooser.showOpenDialog(stage);
+            if (file != null) {
+                preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, file.toPath());
+                var categoryPath = viewModel.session().categoryPath();
+                var value = categoryPath == null || categoryPath.toAbsolutePath().getParent() == null
+                    ? file.toPath().toAbsolutePath().normalize().toString()
+                    : relativize(categoryPath.toAbsolutePath().getParent(), file.toPath());
+                path.setText(value);
+                if (displayName.getText() == null || displayName.getText().isBlank()) {
+                    displayName.setText(displayName(file.toPath()));
+                }
+            }
+        });
+        var content = new VBox(8);
+        addFormRow(content, "Path", new HBox(6, path, browse));
+        addFormRow(content, "Display Name", displayName);
+        addFormRow(content, "Description", description);
+        dialog.getDialogPane().setContent(content);
+        dialog.setResultConverter(button -> button == ButtonType.OK
+            ? new CategoryReferenceDocumentDto(selected.id(), path.getText(), displayName.getText(), description.getText())
+            : null);
+        dialog.showAndWait().ifPresent(updated -> {
+            var documents = referenceDocuments(viewModel.draft()).stream()
+                .map(document -> java.util.Objects.equals(document.id(), updated.id()) ? updated : document)
+                .toList();
+            updateReferenceDocuments(documents, updated.id());
+            var resolved = resolveCategoryPath(updated.path());
+            if (resolved != null && Files.exists(resolved)) {
+                openDocumentPath(resolved);
+            }
+        });
+    }
+
+    private void removeReferenceDocument(Stage stage) {
+        var selected = referenceDocumentSelector.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            status.setText("Select reference document to remove");
+            return;
+        }
+        var alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Remove Reference Document");
+        alert.setHeaderText("Remove reference document from category?");
+        alert.setContentText(referenceDocumentLabel(selected));
+        if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+            return;
+        }
+        var documents = referenceDocuments(viewModel.draft()).stream()
+            .filter(document -> !java.util.Objects.equals(document.id(), selected.id()))
+            .toList();
+        var nextActive = documents.isEmpty() ? null : documents.getFirst().id();
+        updateReferenceDocuments(documents, nextActive);
+        if (nextActive == null) {
+            clearOpenDocument();
+        }
+    }
+
+    private void selectReferenceDocument(CategoryReferenceDocumentDto document) {
+        if (refreshingReferenceDocuments) {
+            return;
+        }
+        if (document == null || viewModel.draft() == null) {
+            return;
+        }
+        if (java.util.Objects.equals(activeReferenceDocument(viewModel.draft()), document.id())
+            && viewModel.session().referenceDocument() != null) {
+            return;
+        }
+        updateReferenceDocuments(referenceDocuments(viewModel.draft()), document.id());
+        var path = resolveCategoryPath(document.path());
+        if (path != null && Files.exists(path)) {
+            openDocumentPath(path);
+        } else {
+            clearOpenDocument();
+            status.setText("Reference document is not available: " + document.path());
+            refreshAll();
+        }
+    }
+
+    private void openActiveCategoryReferenceDocument() {
+        var document = currentReferenceDocument();
+        if (document == null) {
+            clearOpenDocument();
+            refreshReferenceDocuments();
+            return;
+        }
+        refreshReferenceDocuments();
+        var path = resolveCategoryPath(document.path());
+        if (path != null && Files.exists(path)) {
+            openDocumentPath(path);
+        } else {
+            clearOpenDocument();
+            status.setText("Reference document is not available: " + document.path());
+        }
+    }
+
+    private CategoryReferenceDocumentDto currentReferenceDocument() {
+        var documents = referenceDocuments(viewModel.draft());
+        if (documents.isEmpty()) {
+            return null;
+        }
+        var active = activeReferenceDocument(viewModel.draft());
+        return documents.stream()
+            .filter(document -> java.util.Objects.equals(document.id(), active))
+            .findFirst()
+            .orElse(documents.getFirst());
+    }
+
+    private void updateReferenceDocuments(List<CategoryReferenceDocumentDto> documents, String active) {
+        var draft = viewModel.draft();
+        if (draft == null) {
+            return;
+        }
+        var normalized = List.copyOf(documents == null ? List.of() : documents);
+        var updated = new CategoryDto(
+            draft.schemaVersion(),
+            draft.id(),
+            draft.version(),
+            draft.displayName(),
+            draft.description(),
+            normalized.isEmpty() ? null : new CategoryReferenceDocumentsDto(active, normalized),
+            draft.pages(),
+            draft.ocr(),
+            draft.identification(),
+            draft.geometry(),
+            draft.anchors(),
+            draft.fields()
+        );
+        viewModel.session().draftCategory(updated);
+        rememberCurrentWorkspaceDraft();
+        refreshReferenceDocuments();
+        refreshAll();
+    }
+
+    private List<CategoryReferenceDocumentDto> addReferenceDocument(List<CategoryReferenceDocumentDto> documents, CategoryReferenceDocumentDto document) {
+        var updated = new ArrayList<>(documents);
+        updated.add(document);
+        return List.copyOf(updated);
+    }
+
+    private List<CategoryReferenceDocumentDto> referenceDocuments(CategoryDto draft) {
+        if (draft == null || draft.referenceDocuments() == null || draft.referenceDocuments().documents() == null) {
+            return List.of();
+        }
+        return draft.referenceDocuments().documents();
+    }
+
+    private String activeReferenceDocument(CategoryDto draft) {
+        return draft == null || draft.referenceDocuments() == null ? null : draft.referenceDocuments().active();
+    }
+
+    private String uniqueReferenceDocumentId(Path path) {
+        var base = path.getFileName().toString().replaceFirst("\\.[^.]+$", "").toLowerCase(java.util.Locale.ROOT)
+            .replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        if (base.isBlank()) {
+            base = "document";
+        }
+        var existing = referenceDocuments(viewModel.draft()).stream().map(CategoryReferenceDocumentDto::id).collect(java.util.stream.Collectors.toSet());
+        var candidate = base;
+        var suffix = 2;
+        while (existing.contains(candidate)) {
+            candidate = base + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    private String displayName(Path path) {
+        var fileName = path.getFileName().toString();
+        return fileName.replaceFirst("\\.[^.]+$", "");
+    }
+
+    private String referenceDocumentLabel(CategoryReferenceDocumentDto document) {
+        var label = document.displayName() == null || document.displayName().isBlank() ? document.id() : document.displayName();
+        return label == null || label.isBlank() ? document.path() : label;
+    }
+
+    private Path resolveCategoryPath(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        var path = Path.of(value);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        var categoryPath = viewModel.session().categoryPath();
+        if (categoryPath == null || categoryPath.toAbsolutePath().getParent() == null) {
+            return path.toAbsolutePath().normalize();
+        }
+        return categoryPath.toAbsolutePath().getParent().resolve(path).normalize();
+    }
+
+    private void clearOpenDocument() {
+        viewModel.session().referenceDocument(null);
+        viewModel.session().renderedPageCache().clear();
+        viewModel.session().pageCache().clear();
+        viewModel.session().currentPage(1);
+        viewModel.session().clearDownstreamCaches();
+        pageImage.setImage(null);
+        viewer.clearOverlay();
+        refreshPageStatus();
     }
 
     private void updateWorkspaceProfile(ProfileDto profile) {
@@ -1038,29 +1336,6 @@ public final class ConfiguratorApplication extends Application {
         return id + ".json";
     }
 
-    private void chooseDocument(Stage stage) {
-        var chooser = new FileChooser();
-        chooser.getExtensionFilters().addAll(
-            new FileChooser.ExtensionFilter("Documents", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff"),
-            new FileChooser.ExtensionFilter("All files", "*.*")
-        );
-        configureInitialDirectory(chooser, DirectoryKey.OPEN_DOCUMENT);
-        var file = chooser.showOpenDialog(stage);
-        if (file != null) {
-            preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, file.toPath());
-            openDocumentPath(file.toPath());
-        }
-    }
-
-    private void openRecentDocument(Path path) {
-        if (!Files.exists(path)) {
-            showMissingRecentFile(path);
-            return;
-        }
-        preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, path);
-        openDocumentPath(path);
-    }
-
     private void openDocumentPath(Path path) {
         status.setText("Opening document...");
         viewModel.openReferenceDocument(path, preferences.renderOptions())
@@ -1068,7 +1343,6 @@ public final class ConfiguratorApplication extends Application {
                 if (error != null) {
                     showError(error);
                 } else {
-                    preferences.rememberRecentFile(RecentKey.DOCUMENT, path);
                     if (hasWorkspacePreprocessingSteps()) {
                         applyWorkspacePreprocessing();
                     } else {

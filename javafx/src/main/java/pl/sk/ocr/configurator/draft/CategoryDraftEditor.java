@@ -17,6 +17,7 @@ public final class CategoryDraftEditor {
             "1.0",
             normalizedDisplayName,
             "",
+            null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
             new IdentificationDto(List.of(new ConditionGroupDto(List.of(new ConditionDto("TEXT", 1, "", null, null, null))))),
@@ -249,7 +250,7 @@ public final class CategoryDraftEditor {
     private CategoryDto replace(CategoryDto draft, String id, String version, String displayName, String description,
                                 PageSelectionDto pages, OcrSettingsDto ocr, IdentificationDto identification,
                                 GeometryDto geometry, List<AnchorDto> anchors, List<FieldDto> fields) {
-        return new CategoryDto(draft.schemaVersion(), id, version, displayName, description, pages, ocr,
+        return new CategoryDto(draft.schemaVersion(), id, version, displayName, description, draft.referenceDocuments(), pages, ocr,
             identification, geometry, list(anchors), list(fields));
     }
 
