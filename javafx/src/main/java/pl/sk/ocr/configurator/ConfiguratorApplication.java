@@ -161,9 +161,11 @@ public final class ConfiguratorApplication extends Application {
         });
         fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::fieldSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
-            this::activateFieldRegionDrawing, this::svgIcon, services.extensionRegistry());
+            this::activateFieldRegionDrawing, this::svgIcon, services.extensionRegistry(),
+            this::fieldImageProcessorDebugSource);
         profilePreprocessingPanel = new ProfilePreprocessingPanel(workspace::profile, this::updateWorkspaceProfile,
-            this::refreshWorkspaceProfile, this::applyWorkspacePreprocessing, services.extensionRegistry());
+            this::refreshWorkspaceProfile, this::applyWorkspacePreprocessing, services.extensionRegistry(),
+            this::workspaceDebugSourceImage);
         propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         traceViewerPanel = new TraceViewerPanel(() -> viewModel.session().latestTrace(), () -> viewModel.session().traceImageStore());
@@ -1299,6 +1301,52 @@ public final class ConfiguratorApplication extends Application {
             refreshAll();
             status.setText("Preprocessing applied");
         }));
+    }
+
+    private pl.sk.ocr.extension.api.image.ProcessingImage workspaceDebugSourceImage(Integer stepIndex) {
+        var pageNumber = new PageNumber(viewModel.session().currentPage());
+        var rendered = viewModel.session().renderedPageCache().get(pageNumber);
+        var source = rendered == null ? viewModel.session().pageCache().get(pageNumber) : rendered;
+        if (source == null) {
+            return null;
+        }
+        var index = stepIndex == null ? 0 : Math.max(0, stepIndex);
+        var previousSteps = workspacePreprocessingSteps().stream()
+            .limit(index)
+            .filter(step -> step.id() != null && !step.id().isBlank())
+            .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
+            .toList();
+        if (previousSteps.isEmpty()) {
+            return source;
+        }
+        var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
+        return service.prepare(pageNumber, source, previousSteps);
+    }
+
+    private pl.sk.ocr.extension.api.image.ProcessingImage fieldImageProcessorDebugSource(Integer fieldIndex, Integer stepIndex) {
+        var field = field(fieldIndex == null ? -1 : fieldIndex);
+        if (field == null || field.region() == null) {
+            return null;
+        }
+        var pageNumber = new PageNumber(field.page() == null ? viewModel.session().currentPage() : field.page());
+        var source = viewModel.session().pageCache().get(pageNumber);
+        if (source == null) {
+            return null;
+        }
+        var region = field.region();
+        var cropped = new pl.sk.ocr.core.image.BufferedProcessingImage(source.asBufferedImage())
+            .crop(new pl.sk.ocr.domain.geometry.Region(region.x(), region.y(), region.width(), region.height()));
+        var index = stepIndex == null ? 0 : Math.max(0, stepIndex);
+        var previousSteps = (field.imageProcessors() == null ? List.<ExtensionRefDto>of() : field.imageProcessors()).stream()
+            .limit(index)
+            .filter(step -> step.id() != null && !step.id().isBlank())
+            .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
+            .toList();
+        if (previousSteps.isEmpty()) {
+            return cropped;
+        }
+        var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
+        return service.prepare(pageNumber, cropped, previousSteps);
     }
 
     private boolean hasWorkspacePreprocessingSteps() {

@@ -3,6 +3,7 @@ package pl.sk.ocr.configurator.properties;
 import static pl.sk.ocr.configurator.ui.FormControls.*;
 
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -22,6 +23,7 @@ import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionType;
+import pl.sk.ocr.extension.api.image.ProcessingImage;
 
 public final class FieldPropertiesPanel implements DetailsPanel {
     private final CategoryEditorViewModel viewModel;
@@ -33,6 +35,8 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private final Consumer<String> pendingSelection;
     private final Runnable activateRegionDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionRegistry extensionRegistry;
+    private final BiFunction<Integer, Integer, ProcessingImage> imageProcessorDebugSource;
     private final ExtensionPicker extensionPicker;
     private final ExtensionParametersForm parametersForm;
     private final Label fieldsCount = new Label();
@@ -54,7 +58,8 @@ public final class FieldPropertiesPanel implements DetailsPanel {
                                 Supplier<Selection> selection, Label detailsInfo, Runnable afterChange,
                                 Runnable refreshAll, Consumer<String> pendingSelection,
                                 Runnable activateRegionDrawing, Function<String, Node> iconFactory,
-                                ExtensionRegistry extensionRegistry) {
+                                ExtensionRegistry extensionRegistry,
+                                BiFunction<Integer, Integer, ProcessingImage> imageProcessorDebugSource) {
         this.viewModel = viewModel;
         this.fields = fields;
         this.selection = selection;
@@ -64,6 +69,8 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         this.pendingSelection = pendingSelection;
         this.activateRegionDrawing = activateRegionDrawing;
         this.iconFactory = iconFactory;
+        this.extensionRegistry = extensionRegistry;
+        this.imageProcessorDebugSource = imageProcessorDebugSource;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
         this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
@@ -216,10 +223,12 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             var duplicate = button("Duplicate", () -> duplicatePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
             var moveUp = button("Move Up", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
             var moveDown = button("Move Down", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
+            var debug = button("Debug", () -> debugImageProcessorStep(selected.fieldIndex(), stepIndex));
             var remove = button("Remove", () -> removePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
             moveUp.setDisable(stepIndex <= 0);
             moveDown.setDisable(stepIndex >= steps.size() - 1);
-            var row = new HBox(8, label, choose, duplicate, moveUp, moveDown, remove);
+            debug.setDisable(pipeline != Pipeline.IMAGE_PROCESSORS);
+            var row = new HBox(8, label, choose, duplicate, moveUp, moveDown, debug, remove);
             row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
             section.getChildren().add(row);
             if (selectedStep && step != null) {
@@ -227,6 +236,16 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             }
         }
         section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
+    }
+
+    private void debugImageProcessorStep(int fieldIndex, int stepIndex) {
+        var field = field(fieldIndex);
+        if (field == null || stepIndex < 0 || stepIndex >= Pipeline.IMAGE_PROCESSORS.steps(field).size()) {
+            return;
+        }
+        var source = imageProcessorDebugSource == null ? null : imageProcessorDebugSource.apply(fieldIndex, stepIndex);
+        new ImageProcessorDebugDialog(extensionRegistry).show(Pipeline.IMAGE_PROCESSORS.steps(field).get(stepIndex), source)
+            .ifPresent(ref -> replacePipelineStep(Pipeline.IMAGE_PROCESSORS, fieldIndex, stepIndex, ref));
     }
 
     private Label textLabel(String text) {

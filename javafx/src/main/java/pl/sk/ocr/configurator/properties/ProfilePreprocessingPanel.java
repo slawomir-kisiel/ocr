@@ -5,6 +5,7 @@ import static pl.sk.ocr.configurator.ui.FormControls.titledPane;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
@@ -23,6 +24,7 @@ import pl.sk.ocr.config.dto.ProfileDto;
 import pl.sk.ocr.config.dto.ProfilePreprocessingDto;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionType;
+import pl.sk.ocr.extension.api.image.ProcessingImage;
 
 public final class ProfilePreprocessingPanel {
     private final Supplier<ProfileDto> profile;
@@ -31,16 +33,21 @@ public final class ProfilePreprocessingPanel {
     private final Runnable applyPreprocessing;
     private final ExtensionPicker extensionPicker;
     private final ExtensionParametersForm parametersForm;
+    private final ExtensionRegistry extensionRegistry;
+    private final Function<Integer, ProcessingImage> debugSourceImage;
     private final ListView<ExtensionRefDto> steps = new ListView<>();
     private final VBox parameters = new VBox(8);
 
     public ProfilePreprocessingPanel(Supplier<ProfileDto> profile, Consumer<ProfileDto> updateProfile,
                                      Runnable afterChange, Runnable applyPreprocessing,
-                                     ExtensionRegistry extensionRegistry) {
+                                     ExtensionRegistry extensionRegistry,
+                                     Function<Integer, ProcessingImage> debugSourceImage) {
         this.profile = profile;
         this.updateProfile = updateProfile;
         this.afterChange = afterChange;
         this.applyPreprocessing = applyPreprocessing;
+        this.extensionRegistry = extensionRegistry;
+        this.debugSourceImage = debugSourceImage;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
         this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
@@ -52,9 +59,10 @@ public final class ProfilePreprocessingPanel {
         var duplicate = iconButton("copy.svg", "Duplikuj", this::duplicateStep);
         var moveUp = iconButton("angle-up.svg", "Przenieś wyżej", () -> moveSelected(-1));
         var moveDown = iconButton("angle-down.svg", "Przenieś niżej", () -> moveSelected(1));
+        var debug = iconButton("debug.svg", "Debug selected step", this::debugSelected);
         var remove = iconButton("eraser.svg", "Usuń", this::removeSelected);
         var apply = button("Apply preprocessing", applyPreprocessing);
-        var actions = new HBox(6, add, choose, duplicate, moveUp, moveDown, remove);
+        var actions = new HBox(6, add, choose, duplicate, moveUp, moveDown, debug, remove);
         var content = new VBox(8, new Label("Workspace image processors"), steps, actions, parameters, apply);
         content.setPadding(new javafx.geometry.Insets(8));
         return titledPane("Preprocessing", content);
@@ -149,6 +157,17 @@ public final class ProfilePreprocessingPanel {
         updated.set(index, ref);
         updateSteps(updated);
         steps.getSelectionModel().select(index);
+    }
+
+    private void debugSelected() {
+        var index = selectedIndex();
+        var current = currentSteps();
+        if (index < 0 || index >= current.size()) {
+            return;
+        }
+        var source = debugSourceImage == null ? null : debugSourceImage.apply(index);
+        new ImageProcessorDebugDialog(extensionRegistry).show(current.get(index), source)
+            .ifPresent(ref -> replaceStep(index, ref));
     }
 
     private void updateSteps(List<ExtensionRefDto> updated) {
