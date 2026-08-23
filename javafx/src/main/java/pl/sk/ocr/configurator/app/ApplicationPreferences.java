@@ -2,6 +2,8 @@ package pl.sk.ocr.configurator.app;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.prefs.Preferences;
 import pl.sk.ocr.config.runtime.OcrSettings;
@@ -22,6 +24,17 @@ public final class ApplicationPreferences {
         }
     }
 
+    public enum RecentKey {
+        CONFIGURATION("recentConfigurations"),
+        DOCUMENT("recentDocuments");
+
+        private final String key;
+
+        RecentKey(String key) {
+            this.key = key;
+        }
+    }
+
     public record Settings(String tesseractDatapath, String defaultOcrLanguage, int defaultPdfDpi,
                            String lastOpenedDirectory, int cacheLimit) {
     }
@@ -30,6 +43,7 @@ public final class ApplicationPreferences {
     private static final String DEFAULT_OCR_LANGUAGE = "defaultOcrLanguage";
     private static final String DEFAULT_PDF_DPI = "defaultPdfDpi";
     private static final String CACHE_LIMIT = "cacheLimit";
+    private static final int RECENT_LIMIT = 10;
     private static final String DEFAULT_LANGUAGE = "pol";
     private static final int DEFAULT_DPI = 300;
     private static final int DEFAULT_CACHE_LIMIT = 25;
@@ -87,6 +101,38 @@ public final class ApplicationPreferences {
         var directory = Files.isDirectory(file) ? file : file.getParent();
         putDirectory(key, directory == null ? null : directory.toString());
         putDirectory(DirectoryKey.LAST_OPENED, directory == null ? null : directory.toString());
+    }
+
+    public List<Path> recentFiles(RecentKey key) {
+        var value = preferences.get(key.key, "");
+        if (value.isBlank()) {
+            return List.of();
+        }
+        return value.lines()
+            .map(String::trim)
+            .filter(line -> !line.isBlank())
+            .map(Path::of)
+            .distinct()
+            .toList();
+    }
+
+    public void rememberRecentFile(RecentKey key, Path file) {
+        if (file == null) {
+            return;
+        }
+        var normalized = file.toAbsolutePath().normalize();
+        var files = new ArrayList<Path>();
+        files.add(normalized);
+        for (var recent : recentFiles(key)) {
+            var candidate = recent.toAbsolutePath().normalize();
+            if (!candidate.equals(normalized)) {
+                files.add(candidate);
+            }
+            if (files.size() >= RECENT_LIMIT) {
+                break;
+            }
+        }
+        preferences.put(key.key, files.stream().map(Path::toString).collect(java.util.stream.Collectors.joining("\n")));
     }
 
     private void putDirectory(DirectoryKey key, String value) {

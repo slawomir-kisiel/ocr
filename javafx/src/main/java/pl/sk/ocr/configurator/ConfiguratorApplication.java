@@ -1,12 +1,15 @@
 package pl.sk.ocr.configurator;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import static pl.sk.ocr.configurator.ui.FormControls.*;
 import javafx.application.Application;
@@ -45,6 +48,7 @@ import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.DiagnosticExportUseCase;
 import pl.sk.ocr.configurator.app.ApplicationPreferences;
 import pl.sk.ocr.configurator.app.ApplicationPreferences.DirectoryKey;
+import pl.sk.ocr.configurator.app.ApplicationPreferences.RecentKey;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
@@ -148,6 +152,11 @@ public final class ConfiguratorApplication extends Application {
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
         stage.setScene(scene);
+        stage.setOnCloseRequest(event -> {
+            if (!confirmUnsavedChanges(stage)) {
+                event.consume();
+            }
+        });
         stage.show();
     }
 
@@ -169,14 +178,11 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private ToolBar toolbar(Stage stage) {
-        var newCategory = button("New Category", () -> {
-            viewModel.newCategory("new-category", "New Category");
-            refreshAll();
-        });
-        var openConfig = button("Open Configuration", () -> chooseCategory(stage));
+        var newCategory = button("New Category", () -> newCategory(stage));
+        var openConfig = recentSplitButton("Open Configuration", () -> chooseCategory(stage), RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
         var save = button("Save", () -> saveCategory(stage, false));
         var saveAs = button("Save As", () -> saveCategory(stage, true));
-        var openDocument = button("Open Document", () -> chooseDocument(stage));
+        var openDocument = recentSplitButton("Open Document", () -> chooseDocument(stage), RecentKey.DOCUMENT, path -> openRecentDocument(path));
         var runOcr = button("Run OCR", this::runOcr);
         var previewField = button("Preview Field", this::previewField);
         var testCategory = button("Test Category", this::testCategory);
@@ -189,39 +195,110 @@ public final class ConfiguratorApplication extends Application {
 
     private MenuBar menuBar(Stage stage) {
         var file = new Menu("File");
+        var openRecentConfigurations = new Menu("Open Recent Configuration");
+        openRecentConfigurations.setOnShowing(event -> populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path)));
+        var openRecentDocuments = new Menu("Open Recent Document");
+        openRecentDocuments.setOnShowing(event -> populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument));
+        file.setOnShowing(event -> {
+            populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
+            populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
+        });
+        populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
+        populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
         file.getItems().addAll(
-            menuItem("New Category", () -> {
-                viewModel.newCategory("new-category", "New Category");
-                refreshAll();
-            }),
-            menuItem("Open Configuration", () -> chooseCategory(stage)),
-            menuItem("Save", () -> saveCategory(stage, false)),
-            menuItem("Save As", () -> saveCategory(stage, true)),
+            menuItem("New Category", () -> newCategory(stage), new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN)),
+            menuItem("Open Configuration", () -> chooseCategory(stage), new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN)),
+            openRecentConfigurations,
+            menuItem("Save", () -> saveCategory(stage, false), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN)),
+            menuItem("Save As", () -> saveCategory(stage, true), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
             new SeparatorMenuItem(),
-            menuItem("Open Document", () -> chooseDocument(stage))
+            menuItem("Open Document", () -> chooseDocument(stage)),
+            openRecentDocuments,
+            new SeparatorMenuItem(),
+            menuItem("Exit", stage::close)
+        );
+        var view = new Menu("View");
+        view.getItems().addAll(
+            menuItem("Zoom In", () -> setZoom(zoom * 1.25), new KeyCodeCombination(KeyCode.PLUS, KeyCombination.CONTROL_DOWN)),
+            menuItem("Zoom Out", () -> setZoom(zoom / 1.25), new KeyCodeCombination(KeyCode.MINUS, KeyCombination.CONTROL_DOWN)),
+            menuItem("Fit Page", this::fitPage, new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN)),
+            menuItem("Fit Width", this::fitWidth, new KeyCodeCombination(KeyCode.W, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
+            menuItem("100%", this::actualSize, new KeyCodeCombination(KeyCode.DIGIT0, KeyCombination.CONTROL_DOWN)),
+            new SeparatorMenuItem(),
+            menuItem("Previous Page", () -> runOutsideTextInput(() -> changePage(-1)), new KeyCodeCombination(KeyCode.PAGE_UP)),
+            menuItem("Next Page", () -> runOutsideTextInput(() -> changePage(1)), new KeyCodeCombination(KeyCode.PAGE_DOWN)),
+            menuItem("Focus Page Number", () -> viewerPageNumber.requestFocus(), new KeyCodeCombination(KeyCode.G, KeyCombination.CONTROL_DOWN)),
+            new SeparatorMenuItem(),
+            menuItem("Select Mode", () -> runOutsideTextInput(() -> setViewerMode(ViewerMode.SELECT)), new KeyCodeCombination(KeyCode.S)),
+            menuItem("Pan Mode", () -> runOutsideTextInput(() -> setViewerMode(ViewerMode.PAN)), new KeyCodeCombination(KeyCode.P)),
+            menuItem("Draw Region Mode", () -> runOutsideTextInput(this::activateDrawRegionModeFromShortcut), new KeyCodeCombination(KeyCode.R))
         );
         var run = new Menu("Run");
         run.getItems().addAll(
             menuItem("Run OCR", this::runOcr),
             menuItem("Preview Field", this::previewField),
-            menuItem("Test Category", this::testCategory),
+            menuItem("Test Category", this::testCategory, new KeyCodeCombination(KeyCode.F5)),
             menuItem("Validate Configuration", this::validate)
         );
         var tools = new Menu("Tools");
         tools.getItems().add(menuItem("Settings", this::showSettings));
         var help = new Menu("Help");
         help.getItems().addAll(menuItem("Loaded Extensions", this::showLoadedExtensions), menuItem("About", this::showAbout));
-        return new MenuBar(file, new Menu("View"), run, tools, help);
+        return new MenuBar(file, view, run, tools, help);
     }
 
     private MenuItem menuItem(String text, Runnable action) {
+        return menuItem(text, action, null);
+    }
+
+    private MenuItem menuItem(String text, Runnable action, KeyCombination accelerator) {
         var item = new MenuItem(text);
         item.setOnAction(event -> action.run());
+        if (accelerator != null) {
+            item.setAccelerator(accelerator);
+        }
         return item;
+    }
+
+    private SplitMenuButton recentSplitButton(String text, Runnable action, RecentKey key, Consumer<Path> recentAction) {
+        var button = new SplitMenuButton();
+        button.setText(text);
+        button.setOnAction(event -> action.run());
+        button.setOnShowing(event -> populateRecentMenu(button.getItems(), key, recentAction));
+        return button;
+    }
+
+    private void populateRecentMenu(Menu menu, RecentKey key, Consumer<Path> action) {
+        populateRecentMenu(menu.getItems(), key, action);
+    }
+
+    private void populateRecentMenu(javafx.collections.ObservableList<MenuItem> items, RecentKey key, Consumer<Path> action) {
+        items.clear();
+        var recent = preferences.recentFiles(key);
+        if (recent.isEmpty()) {
+            var empty = new MenuItem("No recent files");
+            empty.setDisable(true);
+            items.add(empty);
+            return;
+        }
+        for (var path : recent) {
+            var exists = Files.exists(path);
+            var item = new MenuItem((exists ? "" : "(missing) ") + recentLabel(path));
+            item.setOnAction(event -> action.accept(path));
+            items.add(item);
+        }
+    }
+
+    private String recentLabel(Path path) {
+        var fileName = path.getFileName();
+        return (fileName == null ? path.toString() : fileName.toString()) + "  " + path;
     }
 
     private void configureAccelerators(Scene scene, Stage stage) {
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveCategory(stage, false));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), () -> saveCategory(stage, true));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN), () -> chooseCategory(stage));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN), () -> newCategory(stage));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.PLUS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ADD, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
@@ -231,15 +308,32 @@ public final class ConfiguratorApplication extends Application {
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.NUMPAD0, KeyCombination.CONTROL_DOWN), this::actualSize);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN), this::fitPage);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.W, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), this::fitWidth);
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S), () -> setViewerMode(ViewerMode.SELECT));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.P), () -> setViewerMode(ViewerMode.PAN));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.R), () -> {
-            ensureRegionEditTargetForSelection();
-            if (regionEditTarget != null) {
-                setViewerMode(ViewerMode.DRAW_REGION);
-            }
-        });
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.PAGE_UP), () -> runOutsideTextInput(() -> changePage(-1)));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.PAGE_DOWN), () -> runOutsideTextInput(() -> changePage(1)));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.G, KeyCombination.CONTROL_DOWN), () -> viewerPageNumber.requestFocus());
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S), () -> runOutsideTextInput(() -> setViewerMode(ViewerMode.SELECT)));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.P), () -> runOutsideTextInput(() -> setViewerMode(ViewerMode.PAN)));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.R), () -> runOutsideTextInput(this::activateDrawRegionModeFromShortcut));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.F5), this::testCategory);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ESCAPE), this::cancelRegionEdit);
+    }
+
+    private void runOutsideTextInput(Runnable action) {
+        if (!isTextInputFocused()) {
+            action.run();
+        }
+    }
+
+    private boolean isTextInputFocused() {
+        var scene = primaryStage == null ? null : primaryStage.getScene();
+        return scene != null && scene.getFocusOwner() instanceof TextInputControl;
+    }
+
+    private void activateDrawRegionModeFromShortcut() {
+        ensureRegionEditTargetForSelection();
+        if (regionEditTarget != null) {
+            setViewerMode(ViewerMode.DRAW_REGION);
+        }
     }
 
     private SplitPane center() {
@@ -464,21 +558,29 @@ public final class ConfiguratorApplication extends Application {
         }
     }
 
+    private void newCategory(Stage stage) {
+        if (!confirmUnsavedChanges(stage)) {
+            return;
+        }
+        viewModel.newCategory("new-category", "New Category");
+        refreshAll();
+    }
+
     private void chooseCategory(Stage stage) {
+        if (!confirmUnsavedChanges(stage)) {
+            return;
+        }
         var chooser = new FileChooser();
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
         configureInitialDirectory(chooser, DirectoryKey.OPEN_CONFIGURATION);
         var file = chooser.showOpenDialog(stage);
         if (file != null) {
             preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, file.toPath());
-            runUiSafe(() -> {
-                viewModel.loadCategory(file.toPath());
-                refreshAll();
-            });
+            openCategoryPath(file.toPath());
         }
     }
 
-    private void saveCategory(Stage stage, boolean saveAs) {
+    private boolean saveCategory(Stage stage, boolean saveAs) {
         commitCurrentDetailsForm();
         var path = viewModel.session().categoryPath();
         if (saveAs || path == null) {
@@ -493,9 +595,12 @@ public final class ConfiguratorApplication extends Application {
             preferences.rememberFile(DirectoryKey.SAVE_CONFIGURATION, savePath);
             runUiSafe(() -> {
                 viewModel.saveCategory(savePath);
+                preferences.rememberRecentFile(RecentKey.CONFIGURATION, savePath);
                 refreshAll();
             });
+            return true;
         }
+        return false;
     }
 
     private void commitCurrentDetailsForm() {
@@ -503,6 +608,26 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         propertiesPanel.commitActive();
+    }
+
+    private void openRecentCategory(Stage stage, Path path) {
+        if (!Files.exists(path)) {
+            showMissingRecentFile(path);
+            return;
+        }
+        if (!confirmUnsavedChanges(stage)) {
+            return;
+        }
+        preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, path);
+        openCategoryPath(path);
+    }
+
+    private void openCategoryPath(Path path) {
+        runUiSafe(() -> {
+            viewModel.loadCategory(path);
+            preferences.rememberRecentFile(RecentKey.CONFIGURATION, path);
+            refreshAll();
+        });
     }
 
     private void chooseDocument(Stage stage) {
@@ -515,17 +640,59 @@ public final class ConfiguratorApplication extends Application {
         var file = chooser.showOpenDialog(stage);
         if (file != null) {
             preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, file.toPath());
-            status.setText("Opening document...");
-            viewModel.openReferenceDocument(file.toPath(), preferences.renderOptions())
-                .whenComplete((ignored, error) -> Platform.runLater(() -> {
-                    if (error != null) {
-                        showError(error);
-                    } else {
-                        renderPage();
-                        refreshAll();
-                    }
-                }));
+            openDocumentPath(file.toPath());
         }
+    }
+
+    private void openRecentDocument(Path path) {
+        if (!Files.exists(path)) {
+            showMissingRecentFile(path);
+            return;
+        }
+        preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, path);
+        openDocumentPath(path);
+    }
+
+    private void openDocumentPath(Path path) {
+        status.setText("Opening document...");
+        viewModel.openReferenceDocument(path, preferences.renderOptions())
+            .whenComplete((ignored, error) -> Platform.runLater(() -> {
+                if (error != null) {
+                    showError(error);
+                } else {
+                    preferences.rememberRecentFile(RecentKey.DOCUMENT, path);
+                    renderPage();
+                    refreshAll();
+                }
+            }));
+    }
+
+    private void showMissingRecentFile(Path path) {
+        var alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("Recent File");
+        alert.setHeaderText("File is not available");
+        alert.setContentText(path.toString());
+        alert.showAndWait();
+    }
+
+    private boolean confirmUnsavedChanges(Stage stage) {
+        if (viewModel == null || viewModel.draft() == null || !viewModel.session().dirty()) {
+            return true;
+        }
+        var alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Unsaved Changes");
+        alert.setHeaderText("Current category has unsaved changes.");
+        alert.setContentText("Save changes before continuing?");
+        var save = new ButtonType("Save", ButtonBar.ButtonData.YES);
+        var discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
+        var cancel = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(save, discard, cancel);
+        var choice = alert.showAndWait().orElse(cancel);
+        if (choice == save) {
+            return saveCategory(stage, false);
+        }
+        return choice == discard;
     }
 
     private void runOcr() {
