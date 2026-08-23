@@ -16,8 +16,11 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.Tooltip;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.Cursor;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseButton;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -202,6 +205,13 @@ public final class TraceViewerPanel {
         view.setFitHeight(180);
         var box = new VBox(4, label(ref.label()), view);
         box.setPadding(new Insets(4));
+        box.setCursor(Cursor.HAND);
+        Tooltip.install(box, new Tooltip("Double-click to open image preview"));
+        box.setOnMouseClicked(event -> {
+            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
+                new TraceImagePreviewDialog().show(ref.label(), image.get());
+            }
+        });
         box.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
         return box;
     }
