@@ -18,6 +18,8 @@ public final class CategoryTestResultPanel {
     private static final String TEXT_COLOR_STYLE = "-fx-text-fill: #111827;";
 
     private final Supplier<DocumentResult> resultSupplier;
+    private final Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier;
+    private final TableView<DocumentRow> documents = new TableView<>();
     private final Label document = label("Document: -");
     private final Label category = label("Category: -");
     private final Label status = label("Status: -");
@@ -29,14 +31,19 @@ public final class CategoryTestResultPanel {
     private final ListView<String> traceDetails = new ListView<>();
     private final VBox root;
 
-    public CategoryTestResultPanel(Supplier<DocumentResult> resultSupplier) {
+    public CategoryTestResultPanel(Supplier<DocumentResult> resultSupplier,
+                                   Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier) {
         this.resultSupplier = resultSupplier;
+        this.batchResultSupplier = batchResultSupplier;
+        configureDocuments();
         configureFields();
         issues.setPrefHeight(120);
         issues.setCellFactory(list -> textCell());
         traceDetails.setPrefHeight(150);
         traceDetails.setCellFactory(list -> textCell());
         root = new VBox(6,
+            label("Reference documents"),
+            documents,
             document,
             category,
             status,
@@ -50,6 +57,7 @@ public final class CategoryTestResultPanel {
             label("Errors / Warnings"),
             issues
         );
+        documents.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> refreshDetails(selected == null ? null : selected.source().result()));
         refresh();
     }
 
@@ -58,7 +66,21 @@ public final class CategoryTestResultPanel {
     }
 
     public void refresh() {
-        var result = resultSupplier.get();
+        var batchResults = batchResultSupplier == null ? List.<CategoryReferenceDocumentTestResult>of() : batchResultSupplier.get();
+        if (batchResults != null && !batchResults.isEmpty()) {
+            documents.getItems().setAll(batchResults.stream().map(DocumentRow::from).toList());
+            if (documents.getSelectionModel().getSelectedIndex() < 0) {
+                documents.getSelectionModel().selectFirst();
+            } else {
+                refreshDetails(documents.getSelectionModel().getSelectedItem().source().result());
+            }
+            return;
+        }
+        documents.getItems().clear();
+        refreshDetails(resultSupplier.get());
+    }
+
+    private void refreshDetails(DocumentResult result) {
         if (result == null) {
             document.setText("Document: -");
             category.setText("Category: -");
@@ -84,6 +106,20 @@ public final class CategoryTestResultPanel {
         issues.getItems().setAll(issueTexts.isEmpty() ? List.of("No errors or warnings") : issueTexts);
     }
 
+    private void configureDocuments() {
+        documents.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        documents.setPrefHeight(130);
+        documents.getColumns().add(documentColumn("Reference", "reference", 140));
+        documents.getColumns().add(documentColumn("Path", "path", 240));
+        documents.getColumns().add(documentColumn("Status", "status", 90));
+        documents.getColumns().add(documentColumn("Category", "category", 120));
+        documents.getColumns().add(documentColumn("Issues", "issues", 70));
+        documents.setStyle(TEXT_COLOR_STYLE);
+        documents.skinProperty().addListener((obs, old, skin) ->
+            javafx.application.Platform.runLater(() -> documents.lookupAll(".column-header .label")
+                .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
+    }
+
     private void configureFields() {
         fields.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         fields.setPrefHeight(150);
@@ -99,6 +135,14 @@ public final class CategoryTestResultPanel {
 
     private TableColumn<FieldRow, String> column(String title, String property, double width) {
         var column = new TableColumn<FieldRow, String>(title);
+        column.setCellValueFactory(new PropertyValueFactory<>(property));
+        column.setStyle(TEXT_COLOR_STYLE);
+        column.setPrefWidth(width);
+        return column;
+    }
+
+    private TableColumn<DocumentRow, String> documentColumn(String title, String property, double width) {
+        var column = new TableColumn<DocumentRow, String>(title);
         column.setCellValueFactory(new PropertyValueFactory<>(property));
         column.setStyle(TEXT_COLOR_STYLE);
         column.setPrefWidth(width);
@@ -191,6 +235,45 @@ public final class CategoryTestResultPanel {
 
         public String getValue() {
             return value;
+        }
+
+        public String getIssues() {
+            return issues;
+        }
+    }
+
+    public record DocumentRow(CategoryReferenceDocumentTestResult source, String reference, String path, String status,
+                              String category, String issues) {
+        static DocumentRow from(CategoryReferenceDocumentTestResult result) {
+            var documentResult = result.result();
+            return new DocumentRow(
+                result,
+                result.referenceDocumentId(),
+                result.referenceDocumentPath(),
+                documentResult.status().name(),
+                documentResult.categoryId() == null ? "" : documentResult.categoryId().value(),
+                String.valueOf(issueCount(documentResult))
+            );
+        }
+
+        private static int issueCount(DocumentResult result) {
+            return result.issues().size() + result.fields().stream().mapToInt(field -> field.issues().size()).sum();
+        }
+
+        public String getReference() {
+            return reference;
+        }
+
+        public String getPath() {
+            return path;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public String getCategory() {
+            return category;
         }
 
         public String getIssues() {

@@ -61,6 +61,7 @@ import pl.sk.ocr.configurator.app.ApplicationPreferences.RecentKey;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.ProfileWorkspace;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
+import pl.sk.ocr.configurator.app.InMemoryTraceImageStore;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
 import pl.sk.ocr.configurator.properties.CategoryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.FieldPropertiesPanel;
@@ -71,6 +72,7 @@ import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.SelectionType;
 import pl.sk.ocr.configurator.properties.ProfilePreprocessingPanel;
 import pl.sk.ocr.configurator.result.CategoryTestResultPanel;
+import pl.sk.ocr.configurator.result.CategoryReferenceDocumentTestResult;
 import pl.sk.ocr.configurator.result.FieldResultPanel;
 import pl.sk.ocr.configurator.settings.LoadedExtensionsDialog;
 import pl.sk.ocr.configurator.settings.SettingsDialog;
@@ -81,6 +83,13 @@ import pl.sk.ocr.configurator.viewer.ViewerPoint;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.identifier.ExtensionId;
+import pl.sk.ocr.domain.identifier.DocumentId;
+import pl.sk.ocr.domain.issue.ErrorScope;
+import pl.sk.ocr.domain.issue.IssueCode;
+import pl.sk.ocr.domain.issue.ProcessingIssue;
+import pl.sk.ocr.domain.issue.ProcessingStage;
+import pl.sk.ocr.domain.result.DocumentResult;
+import pl.sk.ocr.domain.trace.ProcessingTrace;
 
 public final class ConfiguratorApplication extends Application {
     private static final double MIN_ZOOM = 0.2;
@@ -170,7 +179,8 @@ public final class ConfiguratorApplication extends Application {
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         traceViewerPanel = new TraceViewerPanel(() -> viewModel.session().latestTrace(), () -> viewModel.session().traceImageStore());
         fieldResultPanel = new FieldResultPanel(() -> viewModel.session().latestFieldResult(), () -> viewModel.session().latestTrace());
-        categoryTestResultPanel = new CategoryTestResultPanel(() -> viewModel.session().latestDocumentResult());
+        categoryTestResultPanel = new CategoryTestResultPanel(() -> viewModel.session().latestDocumentResult(),
+            () -> viewModel.session().latestCategoryTestResults());
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -209,11 +219,12 @@ public final class ConfiguratorApplication extends Application {
         var runOcr = button("Run OCR", this::runOcr);
         var previewField = button("Preview Field", this::previewField);
         var testCategory = button("Test Category", this::testCategory);
+        var testAllDocuments = button("Test All Documents", this::testAllReferenceDocuments);
         var validate = button("Validate", this::validate);
         var settings = button("Settings", this::showSettings);
         var extensions = button("Extensions", this::showLoadedExtensions);
         return new ToolBar(newProfile, openProfile, save, saveAs, new Separator(),
-            runOcr, previewField, testCategory, validate, new Separator(), settings, extensions);
+            runOcr, previewField, testCategory, testAllDocuments, validate, new Separator(), settings, extensions);
     }
 
     private MenuBar menuBar(Stage stage) {
@@ -254,6 +265,7 @@ public final class ConfiguratorApplication extends Application {
             menuItem("Run OCR", this::runOcr),
             menuItem("Preview Field", this::previewField),
             menuItem("Test Category", this::testCategory, new KeyCodeCombination(KeyCode.F5)),
+            menuItem("Test All Reference Documents", this::testAllReferenceDocuments),
             menuItem("Validate Configuration", this::validate)
         );
         var tools = new Menu("Tools");
@@ -1470,11 +1482,93 @@ public final class ConfiguratorApplication extends Application {
                 if (error != null) {
                     showError(error);
                 } else {
+                    viewModel.session().latestCategoryTestResults(List.of());
                     refreshAll();
                     categoryTestResultPanel.refresh();
                     traceViewerPanel.refresh();
                 }
             }));
+    }
+
+    private void testAllReferenceDocuments() {
+        commitCurrentDetailsForm();
+        var draft = viewModel.draft();
+        var documents = referenceDocuments(draft);
+        if (draft == null) {
+            status.setText("No category draft is open");
+            return;
+        }
+        if (documents.isEmpty()) {
+            status.setText("No reference documents configured");
+            return;
+        }
+        var settings = preferences.ocrSettings();
+        var renderOptions = preferences.renderOptions();
+        var steps = workspacePreprocessingSteps();
+        status.setText("Running category test for " + documents.size() + " reference document(s)...");
+        services.backgroundExecutor().submit(() -> {
+            var results = new ArrayList<CategoryReferenceDocumentTestResult>();
+            for (var document : documents) {
+                var path = resolveCategoryPath(document.path());
+                if (path == null || !Files.exists(path)) {
+                    results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path,
+                        failedReferenceDocumentResult(document, "Reference document is not available")));
+                    continue;
+                }
+                try {
+                    var rendered = services.documentReader().read(path, renderOptions);
+                    var pages = prepareReferenceDocumentPages(rendered.pages(), steps);
+                    var result = services.testCategory().test(draft, path, pages, new InMemoryTraceImageStore(), settings);
+                    results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path, result));
+                } catch (RuntimeException e) {
+                    results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path,
+                        failedReferenceDocumentResult(document, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())));
+                }
+            }
+            return List.copyOf(results);
+        }).whenComplete((results, error) -> Platform.runLater(() -> {
+            if (error != null) {
+                showError(error);
+                return;
+            }
+            viewModel.session().latestCategoryTestResults(results);
+            var first = results.isEmpty() ? null : results.getFirst().result();
+            viewModel.session().latestDocumentResult(first);
+            viewModel.session().latestTrace(first == null ? ProcessingTrace.off() : first.trace());
+            refreshAll();
+            categoryTestResultPanel.refresh();
+            traceViewerPanel.refresh();
+            status.setText("Category test finished for " + results.size() + " reference document(s)");
+        }));
+    }
+
+    private Map<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage> prepareReferenceDocumentPages(
+        Map<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage> rendered,
+        List<ExtensionRefDto> steps
+    ) {
+        if (steps == null || steps.isEmpty()) {
+            return rendered;
+        }
+        var refs = steps.stream()
+            .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
+            .toList();
+        var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
+        var prepared = new java.util.LinkedHashMap<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage>();
+        for (var entry : rendered.entrySet()) {
+            prepared.put(entry.getKey(), service.prepare(entry.getKey(), entry.getValue(), refs));
+        }
+        return prepared;
+    }
+
+    private DocumentResult failedReferenceDocumentResult(CategoryReferenceDocumentDto document, String message) {
+        var documentId = document.path() == null || document.path().isBlank() ? document.id() : document.path();
+        var issue = ProcessingIssue.error(
+            new IssueCode("REFERENCE_DOCUMENT_TEST_FAILED"),
+            ErrorScope.DOCUMENT,
+            ProcessingStage.DOCUMENT_LOADING,
+            message
+        );
+        return DocumentResult.from(new DocumentId(documentId), null, List.of(), List.of(issue), ProcessingTrace.off());
     }
 
     private void validate() {

@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import pl.sk.ocr.config.dto.CategoryDto;
 import pl.sk.ocr.configurator.app.InMemoryTraceImageStore;
 import pl.sk.ocr.configurator.app.TraceImageStore;
+import pl.sk.ocr.configurator.result.CategoryReferenceDocumentTestResult;
 import pl.sk.ocr.domain.identifier.PageNumber;
 import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.result.DocumentResult;
@@ -22,6 +23,7 @@ public final class ConfigurationSession {
     private ProcessingTrace latestTrace = ProcessingTrace.off();
     private FieldResult latestFieldResult;
     private DocumentResult latestDocumentResult;
+    private java.util.List<CategoryReferenceDocumentTestResult> latestCategoryTestResults = java.util.List.of();
     private final Map<PageNumber, ProcessingImage> pageCache = new ConcurrentHashMap<>();
     private final Map<PageNumber, ProcessingImage> renderedPageCache = new ConcurrentHashMap<>();
     private final Map<PageNumber, OcrText> ocrCache = new ConcurrentHashMap<>();
@@ -103,6 +105,14 @@ public final class ConfigurationSession {
         this.latestDocumentResult = latestDocumentResult;
     }
 
+    public java.util.List<CategoryReferenceDocumentTestResult> latestCategoryTestResults() {
+        return latestCategoryTestResults;
+    }
+
+    public void latestCategoryTestResults(java.util.List<CategoryReferenceDocumentTestResult> latestCategoryTestResults) {
+        this.latestCategoryTestResults = latestCategoryTestResults == null ? java.util.List.of() : java.util.List.copyOf(latestCategoryTestResults);
+    }
+
     public Map<PageNumber, ProcessingImage> pageCache() {
         return pageCache;
     }
@@ -124,6 +134,7 @@ public final class ConfigurationSession {
         latestTrace = ProcessingTrace.off();
         latestFieldResult = null;
         latestDocumentResult = null;
+        latestCategoryTestResults = java.util.List.of();
         traceImageStore.clear();
     }
 }
