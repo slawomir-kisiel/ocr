@@ -27,7 +27,8 @@ class ImageMagickExtensionProviderTest {
                 "im-deskew",
                 "im-background-correct",
                 "im-median",
-                "im-morphology"
+                "im-morphology",
+                "im-remove-table-frames"
             );
     }
 
@@ -63,6 +64,35 @@ class ImageMagickExtensionProviderTest {
             .containsKeys("inputWidth", "inputHeight", "outputWidth", "outputHeight", "scaleApplied");
     }
 
+    @Test
+    void removeTableFramesCoversDetectedTableLinesAndEmitsTrace() {
+        var processor = new RemoveTableFramesImageProcessor();
+        var input = tableImage();
+        var trace = new java.util.ArrayList<Map<String, Object>>();
+
+        var output = processor.process(
+            new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.of(Map.of(
+                "adaptiveWindow", 15,
+                "adaptiveOffset", 5,
+                "lineGapTolerance", 4,
+                "lineMergeTolerance", 2,
+                "minLineCoverage", 0.45d,
+                "minLineLengthRatio", 0.20d,
+                "frameThickness", 3,
+                "sampleRadius", 4
+            ))),
+            () -> (event, attributes) -> trace.add(attributes)
+        );
+
+        assertThat(luminance(output.asBufferedImage().getRGB(8, 10))).isGreaterThan(220);
+        assertThat(luminance(output.asBufferedImage().getRGB(40, 30))).isGreaterThan(220);
+        assertThat(trace).hasSize(1);
+        assertThat(trace.getFirst())
+            .containsEntry("processorId", "im-remove-table-frames")
+            .containsEntry("tablesDetected", 1)
+            .containsEntry("tableCellsDetected", 4);
+    }
+
     private static ImageProcessingContext noopContext() {
         return () -> pl.sk.ocr.extension.api.trace.TraceSink.NOOP;
     }
@@ -79,5 +109,41 @@ class ImageMagickExtensionProviderTest {
             graphics.dispose();
         }
         return image;
+    }
+
+    private static BufferedImage tableImage() {
+        var image = new BufferedImage(80, 60, BufferedImage.TYPE_INT_ARGB);
+        var graphics = image.createGraphics();
+        try {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+            graphics.setColor(Color.BLACK);
+            var rows = new int[] {10, 30, 50};
+            var columns = new int[] {8, 40, 72};
+            for (int y : rows) {
+                for (int x = columns[0]; x <= columns[2]; x++) {
+                    if (x != 24 && x != 25 && x != 56 && x != 57) {
+                        image.setRGB(x, y, Color.BLACK.getRGB());
+                    }
+                }
+            }
+            for (int x : columns) {
+                for (int y = rows[0]; y <= rows[2]; y++) {
+                    if (y != 20 && y != 21 && y != 40 && y != 41) {
+                        image.setRGB(x, y, Color.BLACK.getRGB());
+                    }
+                }
+            }
+        } finally {
+            graphics.dispose();
+        }
+        return image;
+    }
+
+    private static int luminance(int argb) {
+        var red = (argb >>> 16) & 0xff;
+        var green = (argb >>> 8) & 0xff;
+        var blue = argb & 0xff;
+        return (int) Math.round(0.2126d * red + 0.7152d * green + 0.0722d * blue);
     }
 }

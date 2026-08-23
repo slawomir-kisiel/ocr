@@ -16,7 +16,8 @@ public final class ImageMagickExtensionProvider implements ExtensionProvider {
             new DeskewImageProcessor(),
             new BackgroundCorrectImageProcessor(),
             new MedianImageProcessor(),
-            new MorphologyImageProcessor()
+            new MorphologyImageProcessor(),
+            new RemoveTableFramesImageProcessor()
         );
     }
 }

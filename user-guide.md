@@ -323,6 +323,8 @@ Profil zapisze względną ścieżkę do pliku kategorii, jeżeli jest to możliw
 5. Użyj `debug`, aby porównać obraz przed i po transformacji.
 6. Zapisz profil.
 
+Do usuwania widocznych ramek tabel można dodać image processor `im-remove-table-frames`. Processor wykrywa tabele liniowe i zamalowuje linie wierszy oraz kolumn kolorem tła z sąsiedztwa. Najczęściej dostrajane parametry to `frameThickness`, `sampleRadius`, `lineGapTolerance`, `lineMergeTolerance`, `minLineCoverage` i `minLineLengthRatio`.
+
 ### 3.5. Konfiguracja identyfikacji kategorii
 
 1. W drzewie kategorii wybierz sekcję identyfikacji.
