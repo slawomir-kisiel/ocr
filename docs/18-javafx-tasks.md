@@ -418,6 +418,7 @@ Zakres:
 - `required`,
 - `referenceFeature.bounds`,
 - add/remove.
+- akcja czyszczenia `searchRegion`: puste współrzędne oznaczają brak ograniczenia obszaru i szukanie anchora na całej stronie.
 
 Kryteria akceptacji:
 

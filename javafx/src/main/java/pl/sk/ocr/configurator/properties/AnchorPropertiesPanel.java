@@ -54,6 +54,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final Spinner<Integer> referenceBoundsWidth = regionSpinner();
     private final Spinner<Integer> referenceBoundsHeight = regionSpinner();
     private final Button drawSearchRegion = new Button();
+    private final Button clearSearchRegion = new Button();
     private final Button drawReferenceBounds = new Button();
     private boolean refreshing;
 
@@ -168,6 +169,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         installTooltip(referenceBoundsWidth, "Reference feature bounds width.");
         installTooltip(referenceBoundsHeight, "Reference feature bounds height.");
         configureDrawButton(drawSearchRegion, "Draw anchor search region on document preview.");
+        configureIconButton(clearSearchRegion, "eraser.svg", "Clear anchor search region. Empty values mean searching the whole page.");
         configureDrawButton(drawReferenceBounds, "Draw anchor reference feature bounds on document preview.");
         addAnchor.setOnAction(event -> addAnchor());
         addDraftListener(anchorId, this::applySelectedAnchor);
@@ -184,11 +186,16 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addSpinnerListener(referenceBoundsWidth, this::applySelectedAnchor);
         addSpinnerListener(referenceBoundsHeight, this::applySelectedAnchor);
         drawSearchRegion.setOnAction(event -> activateSearchRegionDrawing.run());
+        clearSearchRegion.setOnAction(event -> clearSearchRegion());
         drawReferenceBounds.setOnAction(event -> activateReferenceBoundsDrawing.run());
     }
 
     private void configureDrawButton(Button button, String tooltip) {
-        button.setGraphic(iconFactory.apply("mode-draw-region.svg"));
+        configureIconButton(button, "mode-draw-region.svg", tooltip);
+    }
+
+    private void configureIconButton(Button button, String icon, String tooltip) {
+        button.setGraphic(iconFactory.apply(icon));
         button.setTooltip(new Tooltip(tooltip));
         button.setMinSize(36, 32);
         button.setPrefSize(36, 32);
@@ -213,7 +220,8 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addFormRow(searchRegionContent, "Width", searchRegionWidth);
         addFormRow(searchRegionContent, "Height", searchRegionHeight);
         detachFromParent(drawSearchRegion);
-        searchRegionContent.getChildren().add(drawSearchRegion);
+        detachFromParent(clearSearchRegion);
+        searchRegionContent.getChildren().add(new HBox(6, drawSearchRegion, clearSearchRegion));
         section.getChildren().add(titledPane("Search Region", searchRegionContent));
 
         var referenceContent = new VBox(8);
@@ -326,6 +334,19 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         } finally {
             refreshing = false;
         }
+    }
+
+    private void clearSearchRegion() {
+        refreshing = true;
+        try {
+            setRegionSpinnerText(searchRegionX, "");
+            setRegionSpinnerText(searchRegionY, "");
+            setRegionSpinnerText(searchRegionWidth, "");
+            setRegionSpinnerText(searchRegionHeight, "");
+        } finally {
+            refreshing = false;
+        }
+        applySelectedAnchor();
     }
 
     private RegionDto searchRegion() {
