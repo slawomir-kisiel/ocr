@@ -19,6 +19,7 @@ import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.Side;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -489,11 +490,29 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private HBox traceExportBar() {
-        var selected = button("Export Selected Image", () -> exportSelectedTraceImage(primaryStage));
-        var allImages = button("Export All Images", () -> exportAllTraceImages(primaryStage));
-        var metadata = button("Export Metadata", () -> exportTraceMetadata(primaryStage));
-        var bundle = button("Export Bundle ZIP", () -> exportTraceBundle(primaryStage));
-        var bar = new HBox(6, selected, allImages, metadata, bundle);
+        var bundle = button("Export", () -> exportTraceBundle(primaryStage));
+        bundle.setTooltip(new Tooltip("Export Bundle ZIP"));
+        var allDocuments = button("Export All", () -> exportAllReferenceDocumentDiagnostics(primaryStage));
+        allDocuments.setTooltip(new Tooltip("Export All Documents ZIP"));
+        var moreMenu = new ContextMenu(
+            menuItem("Export Selected Image", () -> exportSelectedTraceImage(primaryStage)),
+            menuItem("Export All Images", () -> exportAllTraceImages(primaryStage)),
+            menuItem("Export Metadata", () -> exportTraceMetadata(primaryStage))
+        );
+        var more = button("", () -> {});
+        more.setGraphic(svgIcon("ellipsis.svg"));
+        more.setTooltip(new Tooltip("More export options"));
+        more.setMinSize(36, 28);
+        more.setPrefSize(36, 28);
+        more.setMaxSize(36, 28);
+        more.setOnAction(event -> {
+            if (moreMenu.isShowing()) {
+                moreMenu.hide();
+            } else {
+                moreMenu.show(more, Side.BOTTOM, 0, 0);
+            }
+        });
+        var bar = new HBox(6, bundle, allDocuments, more);
         bar.setAlignment(Pos.CENTER_LEFT);
         return bar;
     }
@@ -1728,6 +1747,26 @@ public final class ConfiguratorApplication extends Application {
         status.setText("Exporting diagnostic bundle...");
         services.backgroundExecutor().submit(() -> diagnosticExport.exportBundle(file.toPath(),
                 activeTrace(), activeTraceImageStore()))
+            .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
+    }
+
+    private void exportAllReferenceDocumentDiagnostics(Stage stage) {
+        var results = viewModel.session().latestCategoryTestResults();
+        if (results == null || results.isEmpty()) {
+            status.setText("Run Test All Documents before exporting reference document diagnostics");
+            return;
+        }
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP bundle", "*.zip"));
+        chooser.setInitialFileName("reference-document-diagnostics.zip");
+        configureInitialDirectory(chooser, DirectoryKey.EXPORT_DOCUMENT);
+        var file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return;
+        }
+        preferences.rememberFile(DirectoryKey.EXPORT_DOCUMENT, file.toPath());
+        status.setText("Exporting reference document diagnostics...");
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportReferenceDocumentBundle(file.toPath(), results))
             .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
     }
 

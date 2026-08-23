@@ -2,6 +2,7 @@ package pl.sk.ocr.configurator.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.util.List;
@@ -9,7 +10,10 @@ import java.util.Map;
 import java.util.zip.ZipFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import pl.sk.ocr.configurator.result.CategoryReferenceDocumentTestResult;
+import pl.sk.ocr.domain.identifier.DocumentId;
 import pl.sk.ocr.domain.issue.ProcessingStage;
+import pl.sk.ocr.domain.result.DocumentResult;
 import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.result.StageResult;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
@@ -73,6 +77,65 @@ class DiagnosticExportUseCaseTest {
             assertThat(zip.getEntry("001_CATEGORY_IDENTIFICATION_001.png")).isNotNull();
             assertThat(zip.getEntry("artifacts/001_CATEGORY_IDENTIFICATION_raw-ocr.hocr")).isNotNull();
             assertThat(zip.getEntry("artifacts/002_CATEGORY_IDENTIFICATION_raw-ocr.txt")).isNotNull();
+        }
+    }
+
+    @Test
+    void exportsReferenceDocumentDiagnosticsBundle() throws Exception {
+        var store = new InMemoryTraceImageStore();
+        var ref = store.put("preprocessing input", image());
+        var trace = new ProcessingTrace(
+            TraceMode.FULL,
+            List.of(new StageResult(ProcessingStage.PAGE_PREPARATION, ProcessingStatus.SUCCESS, List.of())),
+            List.of(new TraceEntry(ProcessingStage.PAGE_PREPARATION, "preprocessing",
+                Map.of("rawOcr", "Voucher", "rawOcrHocr", "<html><body>Voucher</body></html>"),
+                List.of(ref)))
+        );
+        var document = new DocumentResult(new DocumentId("dark.pdf"), null, ProcessingStatus.FAILED, List.of(), List.of(), trace);
+        var result = new CategoryReferenceDocumentTestResult("dark-skewed", "samples/dark.pdf", tempDir.resolve("dark.pdf"), document, store);
+        var useCase = new DiagnosticExportUseCase();
+
+        useCase.exportReferenceDocumentBundle(tempDir.resolve("reference-diagnostics.zip"), List.of(result));
+
+        try (var zip = new ZipFile(tempDir.resolve("reference-diagnostics.zip").toFile())) {
+            assertThat(zip.getEntry("metadata.json")).isNotNull();
+            assertThat(zip.getEntry("documents/dark-skewed/trace.json")).isNotNull();
+            assertThat(zip.getEntry("documents/dark-skewed/images/001_PAGE_PREPARATION_001.png")).isNotNull();
+            assertThat(zip.getEntry("documents/dark-skewed/artifacts/001_PAGE_PREPARATION_raw-ocr.hocr")).isNotNull();
+            assertThat(zip.getEntry("documents/dark-skewed/artifacts/002_PAGE_PREPARATION_raw-ocr.txt")).isNotNull();
+        }
+    }
+
+    @Test
+    void exportsTraceMetadataWithRuntimeObjectsInAttributes() throws Exception {
+        var store = new InMemoryTraceImageStore();
+        var ref = store.put("preprocessing output", image());
+        var trace = new ProcessingTrace(
+            TraceMode.FULL,
+            List.of(new StageResult(ProcessingStage.PAGE_PREPARATION, ProcessingStatus.SUCCESS, List.of())),
+            List.of(new TraceEntry(ProcessingStage.PAGE_PREPARATION, "preprocessing",
+                Map.of(
+                    "events", List.of(Map.of(
+                        "event", "crop",
+                        "attributes", Map.of("cropBounds", new Rectangle(1, 2, 3, 4))
+                    )),
+                    "image", image()
+                ),
+                List.of(ref)))
+        );
+        var document = new DocumentResult(new DocumentId("cropped.pdf"), null, ProcessingStatus.SUCCESS, List.of(), List.of(), trace);
+        var result = new CategoryReferenceDocumentTestResult("cropped", "samples/cropped.pdf", tempDir.resolve("cropped.pdf"), document, store);
+        var useCase = new DiagnosticExportUseCase();
+
+        useCase.exportReferenceDocumentBundle(tempDir.resolve("runtime-attributes.zip"), List.of(result));
+
+        try (var zip = new ZipFile(tempDir.resolve("runtime-attributes.zip").toFile())) {
+            var traceJson = new String(zip.getInputStream(zip.getEntry("documents/cropped/trace.json")).readAllBytes());
+            assertThat(traceJson)
+                .contains("\"cropBounds\"")
+                .contains("\"x\" : 1")
+                .contains("\"width\" : 3")
+                .contains("\"type\"");
         }
     }
 
