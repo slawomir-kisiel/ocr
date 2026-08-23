@@ -90,6 +90,10 @@ import pl.sk.ocr.domain.issue.ErrorScope;
 import pl.sk.ocr.domain.issue.IssueCode;
 import pl.sk.ocr.domain.issue.ProcessingIssue;
 import pl.sk.ocr.domain.issue.ProcessingStage;
+import pl.sk.ocr.domain.ocr.OcrArea;
+import pl.sk.ocr.domain.ocr.OcrLine;
+import pl.sk.ocr.domain.ocr.OcrParagraph;
+import pl.sk.ocr.domain.ocr.OcrWord;
 import pl.sk.ocr.domain.result.DocumentResult;
 import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.result.StageResult;
@@ -130,6 +134,14 @@ public final class ConfiguratorApplication extends Application {
     private boolean refreshingReferenceDocuments;
     private ViewerMode viewerMode = ViewerMode.SELECT;
     private RegionEditTarget regionEditTarget;
+    private boolean layerOcrWords = true;
+    private boolean layerOcrLines;
+    private boolean layerOcrParagraphs;
+    private boolean layerOcrAreas;
+    private boolean layerAnchors;
+    private boolean layerFieldRegions;
+    private boolean layerCurrentSelection = true;
+    private boolean layerDiagnostics;
     private String pendingTreeSelectionId;
     private GeometryPropertiesPanel geometryPropertiesPanel;
     private AnchorPropertiesPanel anchorPropertiesPanel;
@@ -267,6 +279,7 @@ public final class ConfiguratorApplication extends Application {
             menuItem("Pan Mode", () -> runOutsideTextInput(() -> setViewerMode(ViewerMode.PAN)), new KeyCodeCombination(KeyCode.P)),
             menuItem("Draw Region Mode", () -> runOutsideTextInput(this::activateDrawRegionModeFromShortcut), new KeyCodeCombination(KeyCode.R))
         );
+        view.getItems().addAll(new SeparatorMenuItem(), viewerLayersMenu());
         var run = new Menu("Run");
         run.getItems().addAll(
             menuItem("Run OCR", this::runOcr),
@@ -284,6 +297,69 @@ public final class ConfiguratorApplication extends Application {
 
     private MenuItem menuItem(String text, Runnable action) {
         return menuItem(text, action, null);
+    }
+
+    private Menu viewerLayersMenu() {
+        var layers = new Menu("Layers");
+        var ocr = new Menu("OCR");
+        ocr.getItems().addAll(
+            layerItem("Words", layerOcrWords, selected -> layerOcrWords = selected),
+            layerItem("Lines", layerOcrLines, selected -> layerOcrLines = selected),
+            layerItem("Paragraphs", layerOcrParagraphs, selected -> layerOcrParagraphs = selected),
+            layerItem("Areas", layerOcrAreas, selected -> layerOcrAreas = selected)
+        );
+        layers.getItems().addAll(
+            ocr,
+            new SeparatorMenuItem(),
+            layerItem("Anchors", layerAnchors, selected -> layerAnchors = selected),
+            layerItem("Field Regions", layerFieldRegions, selected -> layerFieldRegions = selected),
+            layerItem("Current Selection", layerCurrentSelection, selected -> layerCurrentSelection = selected),
+            layerItem("Diagnostics", layerDiagnostics, selected -> layerDiagnostics = selected)
+        );
+        layers.setOnShowing(event -> syncLayerMenu(layers));
+        return layers;
+    }
+
+    private CheckMenuItem layerItem(String text, boolean selected, Consumer<Boolean> update) {
+        var item = new CheckMenuItem(text);
+        item.setSelected(selected);
+        item.setOnAction(event -> {
+            update.accept(item.isSelected());
+            renderOcrOverlay();
+        });
+        return item;
+    }
+
+    private void syncLayerMenu(Menu layers) {
+        for (var item : layers.getItems()) {
+            if (item instanceof Menu menu && "OCR".equals(menu.getText())) {
+                syncLayerItems(menu.getItems());
+            } else if (item instanceof CheckMenuItem checkItem) {
+                checkItem.setSelected(layerSelected(checkItem.getText()));
+            }
+        }
+    }
+
+    private void syncLayerItems(javafx.collections.ObservableList<MenuItem> items) {
+        for (var item : items) {
+            if (item instanceof CheckMenuItem checkItem) {
+                checkItem.setSelected(layerSelected(checkItem.getText()));
+            }
+        }
+    }
+
+    private boolean layerSelected(String text) {
+        return switch (text) {
+            case "Words" -> layerOcrWords;
+            case "Lines" -> layerOcrLines;
+            case "Paragraphs" -> layerOcrParagraphs;
+            case "Areas" -> layerOcrAreas;
+            case "Anchors" -> layerAnchors;
+            case "Field Regions" -> layerFieldRegions;
+            case "Current Selection" -> layerCurrentSelection;
+            case "Diagnostics" -> layerDiagnostics;
+            default -> false;
+        };
     }
 
     private MenuItem menuItem(String text, Runnable action, KeyCombination accelerator) {
@@ -532,6 +608,7 @@ public final class ConfiguratorApplication extends Application {
                 setViewerMode(ViewerMode.DRAW_REGION);
             }
         });
+        var layers = layersButton();
         var zoomToolbar = new VBox(6,
             selectMode,
             panMode,
@@ -541,7 +618,9 @@ public final class ConfiguratorApplication extends Application {
             iconButton("zoom-out.svg", "Zoom Out (Ctrl+-)", () -> setZoom(zoom / 1.25)),
             iconButton("zoom-fit.svg", "Fit Page (Ctrl+F)", this::fitPage),
             iconButton("zoom-width.svg", "Fit Width (Ctrl+Shift+W)", this::fitWidth),
-            iconButton("zoom-100.svg", "100% (Ctrl+0)", this::actualSize)
+            iconButton("zoom-100.svg", "100% (Ctrl+0)", this::actualSize),
+            new Separator(),
+            layers
         );
         zoomToolbar.setPadding(new Insets(8));
         zoomToolbar.setAlignment(Pos.TOP_CENTER);
@@ -558,6 +637,65 @@ public final class ConfiguratorApplication extends Application {
         HBox.setHgrow(documentScroll, Priority.ALWAYS);
         refreshViewerModeButtons();
         return pane;
+    }
+
+    private Button layersButton() {
+        var menu = layersContextMenu();
+        var button = iconButton("layers.svg", "Viewer layers", () -> {});
+        button.setOnAction(event -> {
+            if (menu.isShowing()) {
+                menu.hide();
+            } else {
+                refreshLayersContextMenu(menu);
+                menu.show(button, Side.RIGHT, 0, 0);
+            }
+        });
+        return button;
+    }
+
+    private ContextMenu layersContextMenu() {
+        var menu = new ContextMenu();
+        menu.setAutoHide(true);
+        menu.getItems().addAll(
+            disabledMenuLabel("OCR"),
+            contextLayerItem("Words", layerOcrWords, selected -> layerOcrWords = selected),
+            contextLayerItem("Lines", layerOcrLines, selected -> layerOcrLines = selected),
+            contextLayerItem("Paragraphs", layerOcrParagraphs, selected -> layerOcrParagraphs = selected),
+            contextLayerItem("Areas", layerOcrAreas, selected -> layerOcrAreas = selected),
+            new SeparatorMenuItem(),
+            contextLayerItem("Anchors", layerAnchors, selected -> layerAnchors = selected),
+            contextLayerItem("Field Regions", layerFieldRegions, selected -> layerFieldRegions = selected),
+            contextLayerItem("Current Selection", layerCurrentSelection, selected -> layerCurrentSelection = selected),
+            contextLayerItem("Diagnostics", layerDiagnostics, selected -> layerDiagnostics = selected)
+        );
+        return menu;
+    }
+
+    private MenuItem disabledMenuLabel(String text) {
+        var item = new MenuItem(text);
+        item.setDisable(true);
+        return item;
+    }
+
+    private CustomMenuItem contextLayerItem(String text, boolean selected, Consumer<Boolean> update) {
+        var checkBox = new CheckBox(text);
+        checkBox.setSelected(selected);
+        checkBox.setStyle("-fx-text-fill: #111827;");
+        checkBox.setOnAction(event -> {
+            update.accept(checkBox.isSelected());
+            renderOcrOverlay();
+        });
+        var item = new CustomMenuItem(checkBox, false);
+        item.setUserData(checkBox);
+        return item;
+    }
+
+    private void refreshLayersContextMenu(ContextMenu menu) {
+        for (var item : menu.getItems()) {
+            if (item.getUserData() instanceof CheckBox checkBox) {
+                checkBox.setSelected(layerSelected(checkBox.getText()));
+            }
+        }
     }
 
     private HBox referenceDocumentBar() {
@@ -1973,25 +2111,131 @@ public final class ConfiguratorApplication extends Application {
 
     private void renderOcrOverlay() {
         viewer.clearOverlay();
-        renderSelectedConditionRegionOverlay();
-        renderSelectedAnchorOverlay();
-        renderSelectedFieldOverlay();
+        renderOcrLayerOverlay();
+        if (layerAnchors) {
+            renderAnchorsLayerOverlay();
+        }
+        if (layerFieldRegions) {
+            renderFieldRegionsLayerOverlay();
+        }
+        if (layerDiagnostics) {
+            renderDiagnosticsLayerOverlay();
+        }
+        if (layerCurrentSelection) {
+            renderSelectedConditionRegionOverlay();
+            renderSelectedAnchorOverlay();
+            renderSelectedFieldOverlay();
+        }
+    }
+
+    private void renderOcrLayerOverlay() {
         var ocr = viewModel.session().ocrCache().get(new PageNumber(viewModel.session().currentPage()));
         if (ocr == null) {
             return;
         }
-        for (var word : ocr.words()) {
-            var screen = viewer.mapper().imageToScreen(word.boundingBox().region());
-            var rectangle = new Rectangle(screen.x(), screen.y(), screen.width(), screen.height());
-            rectangle.setFill(Color.TRANSPARENT);
-            rectangle.setStroke(Color.web("#1f7aec"));
-            rectangle.setStrokeWidth(1.0);
-            rectangle.setOnMouseClicked(event -> {
-                detailsInfo.setText("OCR word: " + word.text() + " | confidence=" + word.confidence().value()
-                    + " | bounds=" + word.boundingBox().region());
-                event.consume();
-            });
+        if (layerOcrAreas) {
+            for (var area : ocr.areas()) {
+                viewer.addOverlay(ocrAreaRectangle(area));
+            }
+        }
+        if (layerOcrParagraphs) {
+            for (var paragraph : ocr.paragraphs()) {
+                viewer.addOverlay(ocrParagraphRectangle(paragraph));
+            }
+        }
+        if (layerOcrLines) {
+            for (var line : ocr.lines()) {
+                viewer.addOverlay(ocrLineRectangle(line));
+            }
+        }
+        if (layerOcrWords) {
+            for (var word : ocr.words()) {
+                viewer.addOverlay(ocrWordRectangle(word));
+            }
+        }
+    }
+
+    private Rectangle ocrAreaRectangle(OcrArea area) {
+        var rectangle = domainRegionRectangle(area.boundingBox().region(), Color.color(0.05, 0.58, 0.53, 0.05), "#0f766e", 1.0);
+        rectangle.getStrokeDashArray().setAll(8.0, 4.0);
+        rectangle.setOnMouseClicked(event -> {
+            detailsInfo.setText("OCR area: paragraphs=" + area.paragraphs().size() + " | bounds=" + area.boundingBox().region());
+            event.consume();
+        });
+        return rectangle;
+    }
+
+    private Rectangle ocrParagraphRectangle(OcrParagraph paragraph) {
+        var rectangle = domainRegionRectangle(paragraph.boundingBox().region(), Color.color(0.54, 0.30, 0.06, 0.05), "#b45309", 1.0);
+        rectangle.getStrokeDashArray().setAll(6.0, 4.0);
+        rectangle.setOnMouseClicked(event -> {
+            detailsInfo.setText("OCR paragraph: lines=" + paragraph.lines().size() + " | bounds=" + paragraph.boundingBox().region());
+            event.consume();
+        });
+        return rectangle;
+    }
+
+    private Rectangle ocrLineRectangle(OcrLine line) {
+        var rectangle = domainRegionRectangle(line.boundingBox().region(), Color.color(0.49, 0.23, 0.93, 0.05), "#7c3aed", 1.0);
+        rectangle.getStrokeDashArray().setAll(4.0, 3.0);
+        rectangle.setOnMouseClicked(event -> {
+            detailsInfo.setText("OCR line: " + line.words().stream().map(OcrWord::text).collect(java.util.stream.Collectors.joining(" "))
+                + " | words=" + line.words().size() + " | bounds=" + line.boundingBox().region());
+            event.consume();
+        });
+        return rectangle;
+    }
+
+    private Rectangle ocrWordRectangle(OcrWord word) {
+        var rectangle = domainRegionRectangle(word.boundingBox().region(), Color.TRANSPARENT, "#1f7aec", 1.0);
+        rectangle.setOnMouseClicked(event -> {
+            detailsInfo.setText("OCR word: " + word.text() + " | confidence=" + word.confidence().value()
+                + " | bounds=" + word.boundingBox().region());
+            event.consume();
+        });
+        return rectangle;
+    }
+
+    private void renderAnchorsLayerOverlay() {
+        for (var anchor : anchors()) {
+            if (anchor == null || anchor.page() != null && anchor.page() != viewModel.session().currentPage()) {
+                continue;
+            }
+            if (anchor.searchRegion() != null) {
+                var rectangle = regionRectangle(anchor.searchRegion(), Color.color(0.93, 0.56, 0.12, 0.06), "#d97706", 1.0);
+                rectangle.getStrokeDashArray().setAll(4.0, 4.0);
+                viewer.addOverlay(rectangle);
+            }
+            if (anchor.referenceFeature() != null && anchor.referenceFeature().bounds() != null) {
+                var rectangle = regionRectangle(anchor.referenceFeature().bounds(), Color.color(0.12, 0.65, 0.38, 0.08), "#059669", 1.4);
+                rectangle.getStrokeDashArray().setAll(7.0, 4.0);
+                viewer.addOverlay(rectangle);
+            }
+        }
+    }
+
+    private void renderFieldRegionsLayerOverlay() {
+        for (var field : fields()) {
+            if (field == null || field.region() == null || field.page() != null && field.page() != viewModel.session().currentPage()) {
+                continue;
+            }
+            var rectangle = regionRectangle(field.region(), Color.color(0.50, 0.20, 0.82, 0.06), "#7c3aed", 1.0);
+            rectangle.getStrokeDashArray().setAll(5.0, 4.0);
             viewer.addOverlay(rectangle);
+        }
+    }
+
+    private void renderDiagnosticsLayerOverlay() {
+        for (int groupIndex = 0; groupIndex < identificationGroups().size(); groupIndex++) {
+            for (var condition : conditions(groupIndex)) {
+                if (condition == null || condition.searchRegion() == null
+                    || condition.page() != null && condition.page() != viewModel.session().currentPage()) {
+                    continue;
+                }
+                var rectangle = regionRectangle(condition.searchRegion(), Color.color(0.12, 0.48, 0.93, 0.05), "#1f7aec", 1.0);
+                rectangle.getStrokeDashArray().setAll(2.0, 4.0);
+                viewer.addOverlay(rectangle);
+            }
         }
     }
 
@@ -2051,7 +2295,11 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private Rectangle regionRectangle(RegionDto region, Color fill, String stroke, double strokeWidth) {
-        var screen = viewer.mapper().imageToScreen(toDomainRegion(region));
+        return domainRegionRectangle(toDomainRegion(region), fill, stroke, strokeWidth);
+    }
+
+    private Rectangle domainRegionRectangle(pl.sk.ocr.domain.geometry.Region region, Color fill, String stroke, double strokeWidth) {
+        var screen = viewer.mapper().imageToScreen(region);
         var rectangle = new Rectangle(screen.x(), screen.y(), screen.width(), screen.height());
         rectangle.setFill(fill);
         rectangle.setStroke(Color.web(stroke));
