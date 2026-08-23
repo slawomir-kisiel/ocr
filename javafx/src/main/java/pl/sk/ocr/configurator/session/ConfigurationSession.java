@@ -23,6 +23,7 @@ public final class ConfigurationSession {
     private FieldResult latestFieldResult;
     private DocumentResult latestDocumentResult;
     private final Map<PageNumber, ProcessingImage> pageCache = new ConcurrentHashMap<>();
+    private final Map<PageNumber, ProcessingImage> renderedPageCache = new ConcurrentHashMap<>();
     private final Map<PageNumber, OcrText> ocrCache = new ConcurrentHashMap<>();
     private final TraceImageStore traceImageStore = new InMemoryTraceImageStore();
 
@@ -104,6 +105,10 @@ public final class ConfigurationSession {
 
     public Map<PageNumber, ProcessingImage> pageCache() {
         return pageCache;
+    }
+
+    public Map<PageNumber, ProcessingImage> renderedPageCache() {
+        return renderedPageCache;
     }
 
     public Map<PageNumber, OcrText> ocrCache() {

@@ -153,8 +153,10 @@ class OcrCliApplicationTest {
             "test",
             new ConfigurationVersion("1.0"),
             Path.of("."),
+            List.of(),
             CategoriesMode.EXPLICIT,
             List.of(new CategoryId("category")),
+            ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
             new ProcessingConfiguration(workers == null ? 1 : workers, 16),
             OcrSettings.defaults(),
@@ -175,3 +177,4 @@ class OcrCliApplicationTest {
         }
     }
 }
+

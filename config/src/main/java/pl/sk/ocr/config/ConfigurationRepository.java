@@ -22,12 +22,20 @@ public final class ConfigurationRepository {
 
     public RuntimeConfiguration load(Path profilePath) {
         var profile = profileLoader.load(profilePath);
-        var categories = loadCategories(profile.categoriesDirectory());
+        var categories = profile.categoryFiles().isEmpty()
+            ? loadCategories(profile.categoriesDirectory())
+            : loadCategoryFiles(profile.categoryFiles());
         var active = profile.categoriesMode() == CategoriesMode.ALL
             ? categories
             : categories.stream().filter(category -> profile.activeCategories().contains(category.id())).toList();
         validateActiveCategories(profile.activeCategories(), active);
         return new RuntimeConfiguration(profile, active);
+    }
+
+    private List<CategoryRuntimeConfiguration> loadCategoryFiles(List<Path> files) {
+        return files.stream()
+            .map(categoryLoader::load)
+            .toList();
     }
 
     private List<CategoryRuntimeConfiguration> loadCategories(Path directory) {

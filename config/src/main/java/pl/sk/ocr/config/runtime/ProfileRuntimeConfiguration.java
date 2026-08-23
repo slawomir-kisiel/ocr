@@ -10,8 +10,10 @@ public record ProfileRuntimeConfiguration(
     String id,
     ConfigurationVersion version,
     Path categoriesDirectory,
+    List<Path> categoryFiles,
     CategoriesMode categoriesMode,
     List<CategoryId> activeCategories,
+    ProfilePreprocessingConfiguration preprocessing,
     DirectoriesConfiguration directories,
     ProcessingConfiguration processing,
     OcrSettings ocr,
@@ -19,6 +21,8 @@ public record ProfileRuntimeConfiguration(
     CsvOutputConfiguration csvOutput
 ) {
     public ProfileRuntimeConfiguration {
+        categoryFiles = List.copyOf(categoryFiles == null ? List.of() : categoryFiles);
         activeCategories = List.copyOf(activeCategories == null ? List.of() : activeCategories);
+        preprocessing = preprocessing == null ? ProfilePreprocessingConfiguration.empty() : preprocessing;
     }
 }

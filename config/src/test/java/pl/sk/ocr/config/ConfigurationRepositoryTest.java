@@ -33,6 +33,17 @@ class ConfigurationRepositoryTest {
     }
 
     @Test
+    void loadsCategoriesFromExplicitProfileFiles() {
+        var repository = repository();
+
+        var runtime = repository.load(fixture("profiles/category-files-profile.json"));
+
+        assertThat(runtime.profile().categoryFiles()).hasSize(1);
+        assertThat(runtime.categories()).hasSize(1);
+        assertThat(runtime.categories().getFirst().id().value()).isEqualTo("invoice-a");
+    }
+
+    @Test
     void rejectsUnknownExtension() {
         var repository = repository(List.of(new TestExtension("normalized")));
 

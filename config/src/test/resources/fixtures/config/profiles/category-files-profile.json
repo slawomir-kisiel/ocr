@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "id": "default",
+  "version": "1.0",
+  "categories": {
+    "directory": "./empty-categories",
+    "mode": "EXPLICIT",
+    "active": [
+      "invoice-a"
+    ],
+    "files": [
+      "../categories/minimal-valid-category.json"
+    ]
+  },
+  "directories": {
+    "input": "./input",
+    "success": "./success",
+    "error": "./error"
+  },
+  "processing": {
+    "workers": 2
+  },
+  "ocr": {
+    "language": "pol"
+  },
+  "output": {
+    "csv": {
+      "file": "./result.csv"
+    }
+  }
+}

@@ -1,9 +1,11 @@
 package pl.sk.ocr.configurator;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -38,9 +40,14 @@ import javafx.stage.FileChooser;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
+import pl.sk.ocr.config.dto.CategoryDto;
+import pl.sk.ocr.config.dto.DirectoriesDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.GeometryDto;
 import pl.sk.ocr.config.dto.GeometryStrategyDto;
+import pl.sk.ocr.config.dto.ProfileCategoriesDto;
+import pl.sk.ocr.config.dto.ProfileDto;
+import pl.sk.ocr.config.runtime.ExtensionRef;
 import pl.sk.ocr.config.dto.ReferenceFeatureDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
@@ -50,6 +57,7 @@ import pl.sk.ocr.configurator.app.ApplicationPreferences;
 import pl.sk.ocr.configurator.app.ApplicationPreferences.DirectoryKey;
 import pl.sk.ocr.configurator.app.ApplicationPreferences.RecentKey;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
+import pl.sk.ocr.configurator.app.ProfileWorkspace;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
 import pl.sk.ocr.configurator.properties.CategoryPropertiesPanel;
@@ -59,6 +67,7 @@ import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.SelectionType;
+import pl.sk.ocr.configurator.properties.ProfilePreprocessingPanel;
 import pl.sk.ocr.configurator.result.CategoryTestResultPanel;
 import pl.sk.ocr.configurator.result.FieldResultPanel;
 import pl.sk.ocr.configurator.settings.LoadedExtensionsDialog;
@@ -69,6 +78,7 @@ import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
 import pl.sk.ocr.configurator.viewer.ViewerPoint;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
 import pl.sk.ocr.domain.identifier.PageNumber;
+import pl.sk.ocr.domain.identifier.ExtensionId;
 
 public final class ConfiguratorApplication extends Application {
     private static final double MIN_ZOOM = 0.2;
@@ -76,8 +86,11 @@ public final class ConfiguratorApplication extends Application {
 
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
+    private ConfigurationFileService fileService;
     private Stage primaryStage;
     private final TreeView<ConfigurationTreeNode> configurationTree = new TreeView<>();
+    private final ComboBox<ProfileWorkspace.CategoryEntry> profileCategorySelector = new ComboBox<>();
+    private final ProfileWorkspace workspace = new ProfileWorkspace();
     private final ImageView pageImage = new ImageView();
     private final DocumentViewerOverlay viewer = new DocumentViewerOverlay(pageImage, this::updateSelectedEditableRegionFromViewer, this::applyDrawnRegion);
     private final ScrollPane documentScroll = new ScrollPane(viewer);
@@ -104,6 +117,7 @@ public final class ConfiguratorApplication extends Application {
     private IdentificationPropertiesPanel identificationPropertiesPanel;
     private CategoryPropertiesPanel categoryPropertiesPanel;
     private FieldPropertiesPanel fieldPropertiesPanel;
+    private ProfilePreprocessingPanel profilePreprocessingPanel;
     private PropertiesPanel propertiesPanel;
     private final DiagnosticExportUseCase diagnosticExport = new DiagnosticExportUseCase();
     private TraceViewerPanel traceViewerPanel;
@@ -119,8 +133,9 @@ public final class ConfiguratorApplication extends Application {
     public void start(Stage stage) {
         primaryStage = stage;
         services = ConfiguratorServices.production();
+        fileService = new ConfigurationFileService(services.mapper());
         viewModel = new CategoryEditorViewModel(
-            new ConfigurationFileService(services.mapper()),
+            fileService,
             new OpenReferenceDocumentUseCase(services.documentReader()),
             new RunPageOcrUseCase(services.ocrEngine()),
             services.previewField(),
@@ -143,6 +158,8 @@ public final class ConfiguratorApplication extends Application {
         fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::fieldSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
             this::activateFieldRegionDrawing, this::svgIcon, services.extensionRegistry());
+        profilePreprocessingPanel = new ProfilePreprocessingPanel(workspace::profile, this::updateWorkspaceProfile,
+            this::refreshWorkspaceProfile, this::applyWorkspacePreprocessing, services.extensionRegistry());
         propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         traceViewerPanel = new TraceViewerPanel(() -> viewModel.session().latestTrace(), () -> viewModel.session().traceImageStore());
@@ -178,10 +195,10 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private ToolBar toolbar(Stage stage) {
-        var newCategory = button("New Category", () -> newCategory(stage));
-        var openConfig = recentSplitButton("Open Configuration", () -> chooseCategory(stage), RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
-        var save = button("Save", () -> saveCategory(stage, false));
-        var saveAs = button("Save As", () -> saveCategory(stage, true));
+        var newProfile = button("New Profile", () -> newProfile(stage));
+        var openProfile = recentSplitButton("Open Profile", () -> chooseProfile(stage), RecentKey.PROFILE, path -> openRecentProfile(stage, path));
+        var save = button("Save Profile", () -> saveProfile(stage, false));
+        var saveAs = button("Save Profile As", () -> saveProfile(stage, true));
         var openDocument = recentSplitButton("Open Document", () -> chooseDocument(stage), RecentKey.DOCUMENT, path -> openRecentDocument(path));
         var runOcr = button("Run OCR", this::runOcr);
         var previewField = button("Preview Field", this::previewField);
@@ -189,28 +206,28 @@ public final class ConfiguratorApplication extends Application {
         var validate = button("Validate", this::validate);
         var settings = button("Settings", this::showSettings);
         var extensions = button("Extensions", this::showLoadedExtensions);
-        return new ToolBar(newCategory, openConfig, save, saveAs, new Separator(), openDocument,
+        return new ToolBar(newProfile, openProfile, save, saveAs, new Separator(), openDocument,
             new Separator(), runOcr, previewField, testCategory, validate, new Separator(), settings, extensions);
     }
 
     private MenuBar menuBar(Stage stage) {
         var file = new Menu("File");
-        var openRecentConfigurations = new Menu("Open Recent Configuration");
-        openRecentConfigurations.setOnShowing(event -> populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path)));
+        var openRecentProfiles = new Menu("Open Recent Profile");
+        openRecentProfiles.setOnShowing(event -> populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path)));
         var openRecentDocuments = new Menu("Open Recent Document");
         openRecentDocuments.setOnShowing(event -> populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument));
         file.setOnShowing(event -> {
-            populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
+            populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path));
             populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
         });
-        populateRecentMenu(openRecentConfigurations, RecentKey.CONFIGURATION, path -> openRecentCategory(stage, path));
+        populateRecentMenu(openRecentProfiles, RecentKey.PROFILE, path -> openRecentProfile(stage, path));
         populateRecentMenu(openRecentDocuments, RecentKey.DOCUMENT, this::openRecentDocument);
         file.getItems().addAll(
-            menuItem("New Category", () -> newCategory(stage), new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN)),
-            menuItem("Open Configuration", () -> chooseCategory(stage), new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN)),
-            openRecentConfigurations,
-            menuItem("Save", () -> saveCategory(stage, false), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN)),
-            menuItem("Save As", () -> saveCategory(stage, true), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
+            menuItem("New Profile", () -> newProfile(stage), new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN)),
+            menuItem("Open Profile", () -> chooseProfile(stage), new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN)),
+            openRecentProfiles,
+            menuItem("Save Profile", () -> saveProfile(stage, false), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN)),
+            menuItem("Save Profile As", () -> saveProfile(stage, true), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
             new SeparatorMenuItem(),
             menuItem("Open Document", () -> chooseDocument(stage)),
             openRecentDocuments,
@@ -295,10 +312,10 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void configureAccelerators(Scene scene, Stage stage) {
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveCategory(stage, false));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), () -> saveCategory(stage, true));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN), () -> chooseCategory(stage));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN), () -> newCategory(stage));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN), () -> saveProfile(stage, false));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN), () -> saveProfile(stage, true));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN), () -> chooseProfile(stage));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN), () -> newProfile(stage));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.PLUS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ADD, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.EQUALS, KeyCombination.CONTROL_DOWN), () -> setZoom(zoom * 1.25));
@@ -385,9 +402,37 @@ public final class ConfiguratorApplication extends Application {
         documentScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         documentScroll.addEventFilter(ScrollEvent.SCROLL, this::handleScrollZoom);
         documentScroll.addEventFilter(ZoomEvent.ZOOM, this::handleTouchpadZoom);
-        var split = new SplitPane(configurationTree, documentViewer(), right);
+        var split = new SplitPane(workspacePane(primaryStage), documentViewer(), right);
         split.setDividerPositions(0.22, 0.72);
         return split;
+    }
+
+    private VBox workspacePane(Stage stage) {
+        profileCategorySelector.setMaxWidth(Double.MAX_VALUE);
+        profileCategorySelector.setPromptText("No category");
+        profileCategorySelector.setTooltip(new Tooltip("Categories included in the current profile."));
+        profileCategorySelector.setOnAction(event -> selectWorkspaceCategory(profileCategorySelector.getSelectionModel().getSelectedIndex()));
+        var actions = new HBox(6,
+            button("Nowa", () -> addNewWorkspaceCategory(stage)),
+            button("Otwórz", () -> attachWorkspaceCategory(stage)),
+            button("Usuń", () -> removeWorkspaceCategory(stage))
+        );
+        actions.setAlignment(Pos.CENTER_LEFT);
+        var header = new VBox(6, sectionLabel("Profile categories"), profileCategorySelector, actions);
+        header.setPadding(new Insets(8));
+        header.setStyle("-fx-background-color: #f7f8fa; -fx-border-color: #c8cdd4; -fx-border-width: 0 0 1 0;");
+        var categoriesPane = new VBox(header, configurationTree);
+        VBox.setVgrow(configurationTree, Priority.ALWAYS);
+        var tabs = new TabPane(
+            closableTab("Preprocessing", profilePreprocessingPanel.view()),
+            closableTab("Categories", categoriesPane)
+        );
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        var pane = new VBox(tabs);
+        VBox.setVgrow(tabs, Priority.ALWAYS);
+        VBox.setVgrow(configurationTree, Priority.ALWAYS);
+        pane.setPrefWidth(300);
+        return pane;
     }
 
     private Tab closableTab(String title, Node content) {
@@ -558,44 +603,55 @@ public final class ConfiguratorApplication extends Application {
         }
     }
 
-    private void newCategory(Stage stage) {
+    private void newProfile(Stage stage) {
         if (!confirmUnsavedChanges(stage)) {
             return;
         }
+        workspace.profilePath(null);
+        workspace.profile(fileService.newProfile("default", "Default Profile"));
+        workspace.categoriesDirectory(null);
+        workspace.categories().clear();
+        workspace.selectedIndex(-1);
+        workspace.dirty(true);
         viewModel.newCategory("new-category", "New Category");
+        addCurrentDraftToWorkspace(null);
+        status.setText("New profile workspace");
+        refreshWorkspaceCategories();
         refreshAll();
     }
 
-    private void chooseCategory(Stage stage) {
+    private void chooseProfile(Stage stage) {
         if (!confirmUnsavedChanges(stage)) {
             return;
         }
         var chooser = new FileChooser();
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
-        configureInitialDirectory(chooser, DirectoryKey.OPEN_CONFIGURATION);
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Profile JSON", "*.json"));
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_PROFILE);
         var file = chooser.showOpenDialog(stage);
         if (file != null) {
-            preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, file.toPath());
-            openCategoryPath(file.toPath());
+            preferences.rememberFile(DirectoryKey.OPEN_PROFILE, file.toPath());
+            openProfilePath(file.toPath());
         }
     }
 
-    private boolean saveCategory(Stage stage, boolean saveAs) {
+    private boolean saveProfile(Stage stage, boolean saveAs) {
         commitCurrentDetailsForm();
-        var path = viewModel.session().categoryPath();
+        rememberCurrentWorkspaceDraft();
+        ensureWorkspace();
+        var path = workspace.profilePath();
         if (saveAs || path == null) {
             var chooser = new FileChooser();
-            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
-            configureInitialDirectory(chooser, DirectoryKey.SAVE_CONFIGURATION);
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Profile JSON", "*.json"));
+            configureInitialDirectory(chooser, DirectoryKey.SAVE_PROFILE);
             var file = chooser.showSaveDialog(stage);
             path = file == null ? null : file.toPath();
         }
         if (path != null) {
             Path savePath = path;
-            preferences.rememberFile(DirectoryKey.SAVE_CONFIGURATION, savePath);
+            preferences.rememberFile(DirectoryKey.SAVE_PROFILE, savePath);
             runUiSafe(() -> {
-                viewModel.saveCategory(savePath);
-                preferences.rememberRecentFile(RecentKey.CONFIGURATION, savePath);
+                saveWorkspace(savePath);
+                preferences.rememberRecentFile(RecentKey.PROFILE, savePath);
                 refreshAll();
             });
             return true;
@@ -610,7 +666,7 @@ public final class ConfiguratorApplication extends Application {
         propertiesPanel.commitActive();
     }
 
-    private void openRecentCategory(Stage stage, Path path) {
+    private void openRecentProfile(Stage stage, Path path) {
         if (!Files.exists(path)) {
             showMissingRecentFile(path);
             return;
@@ -618,16 +674,368 @@ public final class ConfiguratorApplication extends Application {
         if (!confirmUnsavedChanges(stage)) {
             return;
         }
-        preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, path);
-        openCategoryPath(path);
+        preferences.rememberFile(DirectoryKey.OPEN_PROFILE, path);
+        openProfilePath(path);
     }
 
-    private void openCategoryPath(Path path) {
+    private void openProfilePath(Path path) {
         runUiSafe(() -> {
-            viewModel.loadCategory(path);
-            preferences.rememberRecentFile(RecentKey.CONFIGURATION, path);
+            loadWorkspace(path);
+            preferences.rememberRecentFile(RecentKey.PROFILE, path);
             refreshAll();
         });
+    }
+
+    private void attachWorkspaceCategory(Stage stage) {
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_CONFIGURATION);
+        var file = chooser.showOpenDialog(stage);
+        if (file != null) {
+            preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, file.toPath());
+            runUiSafe(() -> {
+                rememberCurrentWorkspaceDraft();
+                addCategoryToWorkspace(file.toPath(), fileService.loadCategory(file.toPath()));
+                preferences.rememberRecentFile(RecentKey.CONFIGURATION, file.toPath());
+                refreshWorkspaceCategories();
+                refreshAll();
+            });
+        }
+    }
+
+    private void addNewWorkspaceCategory(Stage stage) {
+        ensureWorkspace();
+        rememberCurrentWorkspaceDraft();
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
+        configureInitialDirectory(chooser, DirectoryKey.SAVE_CONFIGURATION);
+        chooser.setInitialFileName("new-category.json");
+        var file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return;
+        }
+        preferences.rememberFile(DirectoryKey.SAVE_CONFIGURATION, file.toPath());
+        viewModel.newCategory("new-category", "New Category");
+        addCurrentDraftToWorkspace(file.toPath());
+        refreshWorkspaceCategories();
+        refreshAll();
+    }
+
+    private void removeWorkspaceCategory(Stage stage) {
+        var selected = workspace.selectedIndex();
+        if (selected < 0 || selected >= workspace.categories().size()) {
+            status.setText("Select a category to remove");
+            return;
+        }
+        var entry = workspace.categories().get(selected);
+        var alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Remove Category");
+        alert.setHeaderText("Remove category from profile?");
+        alert.setContentText("The category file will not be deleted: " + (entry.path() == null ? "(new category)" : entry.path()));
+        if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+            return;
+        }
+        workspace.categories().remove(selected);
+        workspace.dirty(true);
+        var next = Math.min(selected, workspace.categories().size() - 1);
+        workspace.selectedIndex(next);
+        if (next >= 0) {
+            openWorkspaceCategory(next);
+        } else {
+            viewModel.newCategory("new-category", "New Category");
+            viewModel.session().categoryPath(null);
+        }
+        refreshWorkspaceCategories();
+        refreshAll();
+    }
+
+    private void ensureWorkspace() {
+        if (workspace.profile() != null) {
+            return;
+        }
+        workspace.profile(fileService.newProfile("default", "Default Profile"));
+        workspace.categoriesDirectory(null);
+        workspace.dirty(true);
+    }
+
+    private void loadWorkspace(Path profilePath) {
+        var profile = fileService.loadProfile(profilePath);
+        workspace.profilePath(profilePath);
+        workspace.profile(profile);
+        workspace.categories().clear();
+        workspace.categoriesDirectory(resolveProfilePath(profilePath, profile.categories().directory()));
+        for (var categoryPath : categoryPaths(profilePath, profile)) {
+            if (Files.exists(categoryPath)) {
+                addCategoryToWorkspace(categoryPath, fileService.loadCategory(categoryPath));
+            }
+        }
+        workspace.markSaved();
+        workspace.selectedIndex(workspace.categories().isEmpty() ? -1 : 0);
+        if (workspace.selectedIndex() >= 0) {
+            openWorkspaceCategory(workspace.selectedIndex());
+        }
+        refreshWorkspaceCategories();
+        status.setText("Loaded profile: " + profilePath.getFileName());
+    }
+
+    private List<Path> categoryPaths(Path profilePath, ProfileDto profile) {
+        var categories = profile.categories();
+        if (categories == null || categories.directory() == null || categories.directory().isBlank()) {
+            return List.of();
+        }
+        var directory = resolveProfilePath(profilePath, categories.directory());
+        if (categories.files() != null && !categories.files().isEmpty()) {
+            return categories.files().stream()
+                .map(file -> resolveProfilePath(profilePath, file))
+                .toList();
+        }
+        if (!Files.isDirectory(directory)) {
+            return List.of();
+        }
+        var mode = categories.mode() == null ? "EXPLICIT" : categories.mode();
+        if ("ALL".equals(mode)) {
+            return listCategoryJsonFiles(directory);
+        }
+        var active = categories.active() == null ? List.<String>of() : categories.active();
+        var byId = new java.util.LinkedHashMap<String, Path>();
+        for (var categoryPath : listCategoryJsonFiles(directory)) {
+            var category = fileService.loadCategory(categoryPath);
+            if (active.contains(category.id())) {
+                byId.put(category.id(), categoryPath);
+            }
+        }
+        var paths = new ArrayList<Path>();
+        for (var id : active) {
+            var path = byId.get(id);
+            if (path != null) {
+                paths.add(path);
+            }
+        }
+        return paths;
+    }
+
+    private List<Path> listCategoryJsonFiles(Path directory) {
+        var paths = new ArrayList<Path>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.json")) {
+            for (var path : stream) {
+                paths.add(path);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot list profile categories: " + directory, e);
+        }
+        paths.sort(java.util.Comparator.comparing(path -> path.getFileName().toString()));
+        return paths;
+    }
+
+    private void saveWorkspace(Path profilePath) {
+        var directory = workspace.categoriesDirectory();
+        if (directory == null) {
+            directory = profilePath.toAbsolutePath().getParent().resolve("categories").normalize();
+            workspace.categoriesDirectory(directory);
+        }
+        try {
+            Files.createDirectories(directory);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot create categories directory: " + directory, e);
+        }
+        for (int i = 0; i < workspace.categories().size(); i++) {
+            var entry = workspace.categories().get(i);
+            var path = entry.path() == null ? directory.resolve(fileName(entry.draft().id())) : entry.path();
+            fileService.saveCategory(path, entry.draft());
+            workspace.categories().set(i, new ProfileWorkspace.CategoryEntry(entry.draft().id(), entry.draft().displayName(), path, entry.draft()));
+        }
+        var savedProfile = profileForSave(profilePath, directory);
+        fileService.saveProfile(profilePath, savedProfile);
+        workspace.profilePath(profilePath);
+        workspace.profile(savedProfile);
+        workspace.markSaved();
+        var selected = workspace.selectedCategory();
+        if (selected != null) {
+            viewModel.session().categoryPath(selected.path());
+            viewModel.session().markSaved();
+        }
+        refreshWorkspaceCategories();
+        status.setText("Saved profile: " + profilePath.getFileName());
+    }
+
+    private ProfileDto profileForSave(Path profilePath, Path categoriesDirectory) {
+        var base = workspace.profile() == null ? fileService.newProfile("default", "Default Profile") : workspace.profile();
+        var active = workspace.categories().stream()
+            .map(ProfileWorkspace.CategoryEntry::draft)
+            .map(CategoryDto::id)
+            .toList();
+        var relativeCategories = relativize(profilePath.toAbsolutePath().getParent(), categoriesDirectory);
+        var categoryFiles = workspace.categories().stream()
+            .map(ProfileWorkspace.CategoryEntry::path)
+            .filter(java.util.Objects::nonNull)
+            .map(path -> relativize(profilePath.toAbsolutePath().getParent(), path))
+            .toList();
+        return new ProfileDto(
+            base.schemaVersion() == null ? "1.0" : base.schemaVersion(),
+            base.id() == null || base.id().isBlank() ? "default" : base.id(),
+            base.version() == null || base.version().isBlank() ? "1.0" : base.version(),
+            base.displayName(),
+            base.description(),
+            new ProfileCategoriesDto(relativeCategories, "EXPLICIT", active, categoryFiles),
+            base.preprocessing(),
+            base.directories() == null ? new DirectoriesDto("./input", "./success", "./error") : base.directories(),
+            base.processing(),
+            base.ocr(),
+            base.trace(),
+            base.output()
+        );
+    }
+
+    private void addCurrentDraftToWorkspace(Path path) {
+        addCategoryToWorkspace(path, viewModel.draft());
+    }
+
+    private void addCategoryToWorkspace(Path path, CategoryDto draft) {
+        if (draft == null) {
+            return;
+        }
+        var entry = new ProfileWorkspace.CategoryEntry(draft.id(), draft.displayName(), path, draft);
+        var existing = indexOfCategory(draft.id());
+        if (existing >= 0) {
+            workspace.categories().set(existing, entry);
+            workspace.selectedIndex(existing);
+        } else {
+            workspace.categories().add(entry);
+            workspace.selectedIndex(workspace.categories().size() - 1);
+        }
+        openWorkspaceCategory(workspace.selectedIndex());
+        workspace.dirty(true);
+    }
+
+    private int indexOfCategory(String id) {
+        for (int i = 0; i < workspace.categories().size(); i++) {
+            if (java.util.Objects.equals(workspace.categories().get(i).id(), id)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void rememberCurrentWorkspaceDraft() {
+        var selected = workspace.selectedIndex();
+        var draft = viewModel.draft();
+        if (selected >= 0 && selected < workspace.categories().size() && draft != null) {
+            var previous = workspace.categories().get(selected);
+            workspace.categories().set(selected, new ProfileWorkspace.CategoryEntry(draft.id(), draft.displayName(), previous.path(), draft));
+        }
+        if (viewModel.session().dirty()) {
+            workspace.dirty(true);
+        }
+    }
+
+    private void selectWorkspaceCategory(int index) {
+        if (index < 0 || index == workspace.selectedIndex() || index >= workspace.categories().size()) {
+            return;
+        }
+        rememberCurrentWorkspaceDraft();
+        workspace.selectedIndex(index);
+        openWorkspaceCategory(index);
+        refreshAll();
+    }
+
+    private void openWorkspaceCategory(int index) {
+        var entry = workspace.categories().get(index);
+        viewModel.session().categoryPath(entry.path());
+        viewModel.session().openDraft(entry.draft());
+        status.setText("Selected category: " + entry);
+    }
+
+    private void refreshWorkspaceCategories() {
+        profileCategorySelector.getItems().setAll(workspace.categories());
+        if (workspace.selectedIndex() >= 0 && workspace.selectedIndex() < workspace.categories().size()) {
+            profileCategorySelector.getSelectionModel().select(workspace.selectedIndex());
+        } else {
+            profileCategorySelector.getSelectionModel().clearSelection();
+        }
+    }
+
+    private void updateWorkspaceProfile(ProfileDto profile) {
+        workspace.profile(profile);
+        workspace.dirty(true);
+        viewModel.session().clearDownstreamCaches();
+    }
+
+    private void refreshWorkspaceProfile() {
+        workspace.dirty(true);
+        if (profilePreprocessingPanel != null) {
+            profilePreprocessingPanel.refresh();
+        }
+        status.setText("Profile preprocessing changed");
+    }
+
+    private void applyWorkspacePreprocessing() {
+        if (viewModel.session().renderedPageCache().isEmpty() && viewModel.session().pageCache().isEmpty()) {
+            status.setText("Open a document before applying preprocessing");
+            return;
+        }
+        var steps = workspacePreprocessingSteps();
+        var refs = steps.stream()
+            .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
+            .toList();
+        status.setText("Applying preprocessing...");
+        services.backgroundExecutor().submit(() -> {
+            var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
+            var prepared = new java.util.LinkedHashMap<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage>();
+            var source = viewModel.session().renderedPageCache().isEmpty()
+                ? viewModel.session().pageCache()
+                : viewModel.session().renderedPageCache();
+            for (var entry : source.entrySet()) {
+                prepared.put(entry.getKey(), service.prepare(entry.getKey(), entry.getValue(), refs));
+            }
+            return prepared;
+        }).whenComplete((prepared, error) -> Platform.runLater(() -> {
+            if (error != null) {
+                showError(error);
+                return;
+            }
+            viewModel.session().pageCache().clear();
+            viewModel.session().pageCache().putAll(prepared);
+            viewModel.session().clearDownstreamCaches();
+            renderPage();
+            refreshAll();
+            status.setText("Preprocessing applied");
+        }));
+    }
+
+    private boolean hasWorkspacePreprocessingSteps() {
+        return !workspacePreprocessingSteps().isEmpty();
+    }
+
+    private List<ExtensionRefDto> workspacePreprocessingSteps() {
+        var profile = workspace.profile();
+        return profile == null || profile.preprocessing() == null || profile.preprocessing().imageProcessors() == null
+            ? List.of()
+            : profile.preprocessing().imageProcessors();
+    }
+
+    private Path resolveProfilePath(Path profilePath, String value) {
+        var path = Path.of(value);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        return profilePath.toAbsolutePath().getParent().resolve(path).normalize();
+    }
+
+    private String relativize(Path base, Path path) {
+        if (base == null || path == null) {
+            return "categories";
+        }
+        try {
+            return base.toAbsolutePath().normalize().relativize(path.toAbsolutePath().normalize()).toString().replace('\\', '/');
+        } catch (IllegalArgumentException e) {
+            return path.toAbsolutePath().normalize().toString();
+        }
+    }
+
+    private String fileName(String categoryId) {
+        var id = categoryId == null || categoryId.isBlank() ? "new-category" : categoryId.trim();
+        return id + ".json";
     }
 
     private void chooseDocument(Stage stage) {
@@ -661,8 +1069,12 @@ public final class ConfiguratorApplication extends Application {
                     showError(error);
                 } else {
                     preferences.rememberRecentFile(RecentKey.DOCUMENT, path);
-                    renderPage();
-                    refreshAll();
+                    if (hasWorkspacePreprocessingSteps()) {
+                        applyWorkspacePreprocessing();
+                    } else {
+                        renderPage();
+                        refreshAll();
+                    }
                 }
             }));
     }
@@ -676,13 +1088,13 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private boolean confirmUnsavedChanges(Stage stage) {
-        if (viewModel == null || viewModel.draft() == null || !viewModel.session().dirty()) {
+        if (viewModel == null || (!workspace.dirty() && (viewModel.draft() == null || !viewModel.session().dirty()))) {
             return true;
         }
         var alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.initOwner(stage);
         alert.setTitle("Unsaved Changes");
-        alert.setHeaderText("Current category has unsaved changes.");
+        alert.setHeaderText("Current profile workspace has unsaved changes.");
         alert.setContentText("Save changes before continuing?");
         var save = new ButtonType("Save", ButtonBar.ButtonData.YES);
         var discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
@@ -690,7 +1102,7 @@ public final class ConfiguratorApplication extends Application {
         alert.getButtonTypes().setAll(save, discard, cancel);
         var choice = alert.showAndWait().orElse(cancel);
         if (choice == save) {
-            return saveCategory(stage, false);
+            return saveProfile(stage, false);
         }
         return choice == discard;
     }
@@ -1091,6 +1503,9 @@ public final class ConfiguratorApplication extends Application {
         status.setText(viewModel.status());
         refreshPageStatus();
         refreshValidationTable();
+        if (profilePreprocessingPanel != null) {
+            profilePreprocessingPanel.refresh();
+        }
         categoryTestResultPanel.refresh();
         fieldResultPanel.refresh();
         traceViewerPanel.refresh();
@@ -1215,6 +1630,7 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
+            + " | Profile dirty=" + workspace.dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
         propertiesPanel.refreshActive();
         renderOcrOverlay();
@@ -1371,9 +1787,11 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void refreshAfterDraftEdit() {
+        rememberCurrentWorkspaceDraft();
         status.setText(viewModel.status());
         refreshValidationTable();
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
+            + " | Profile dirty=" + workspace.dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
         renderOcrOverlay();
     }

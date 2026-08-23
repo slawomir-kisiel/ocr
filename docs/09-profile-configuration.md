@@ -177,10 +177,18 @@ Sekcja wskazuje skąd pobierać konfiguracje kategorii i które z nich aktywowa�
     "active": [
       "formularz-abc",
       "faktura-a"
+    ],
+    "files": [
+      "../categories/formularz-abc.json",
+      "../shared-categories/faktura-a.json"
     ]
   }
 }
 ```
+
+Pole `files` jest opcjonalne. Jeśli jest podane, profil wskazuje konkretne pliki kategorii i aplikacja ładuje je bez skanowania całego katalogu `directory`. Ścieżki w `files` mogą być bezwzględne albo względne względem pliku profilu.
+
+Pole `directory` pozostaje wymagane ze względu na zgodność wsteczną i tryb `ALL`; dla profili tworzonych w UI rekomendowane jest używanie `files`, ponieważ kategorie mogą znajdować się poza jednym katalogiem i mogą być współdzielone przez wiele profili.
 
 ## 10. categories.directory
 
@@ -203,7 +211,40 @@ Lista `CategoryId`.
 
 Każda wartość musi odpowiadać dokładnie jednej poprawnej konfiguracji kategorii.
 
-## 12. Aktywacja wszystkich kategorii
+Jeśli `categories.files` jest podane, wartości `active` są filtrowane względem kategorii załadowanych z tych plików.
+
+## 12. categories.files
+
+Opcjonalna lista ścieżek do plików kategorii.
+
+Rekomendowana struktura repozytorium:
+
+```text
+profiles/
+  default.json
+  customer-a.json
+categories/
+  invoice.json
+  voucher.json
+```
+
+Przykład profilu:
+
+```json
+{
+  "categories": {
+    "directory": "../categories",
+    "mode": "EXPLICIT",
+    "active": ["invoice", "voucher"],
+    "files": [
+      "../categories/invoice.json",
+      "../categories/voucher.json"
+    ]
+  }
+}
+```
+
+## 13. Aktywacja wszystkich kategorii
 
 Opcjonalny wariant:
 
@@ -231,7 +272,7 @@ Rekomendacja:
 
 - preferować jawne `mode`.
 
-## 13. Categories mode
+## 14. Categories mode
 
 Proponowane wartości:
 

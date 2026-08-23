@@ -16,8 +16,34 @@ public final class ConfigurationFileService {
         return mapper.read(path, CategoryDto.class);
     }
 
+    public ProfileDto loadProfile(Path path) {
+        return mapper.read(path, ProfileDto.class);
+    }
+
     public void saveCategory(Path path, CategoryDto draft) {
         mapper.write(path, draft);
+    }
+
+    public void saveProfile(Path path, ProfileDto draft) {
+        mapper.write(path, draft);
+    }
+
+    public ProfileDto newProfile(String id, String displayName) {
+        var normalizedId = id == null || id.isBlank() ? "default" : id.trim();
+        return new ProfileDto(
+            "1.0",
+            normalizedId,
+            "1.0",
+            displayName == null || displayName.isBlank() ? normalizedId : displayName.trim(),
+            "",
+            new ProfileCategoriesDto("categories", "EXPLICIT", java.util.List.of(), java.util.List.of()),
+            new ProfilePreprocessingDto(java.util.List.of()),
+            new DirectoriesDto("./input", "./success", "./error"),
+            new ProcessingDto(1, null),
+            new OcrSettingsDto("pol", null),
+            new TraceDto("OFF"),
+            new ProfileOutputDto(new CsvOutputDto("./result.csv", "UTF-8", ";", "\"", true, false))
+        );
     }
 
     public CategoryDto newCategory(String id, String displayName) {

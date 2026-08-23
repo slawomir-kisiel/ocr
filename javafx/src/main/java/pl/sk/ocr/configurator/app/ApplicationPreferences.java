@@ -11,6 +11,8 @@ import pl.sk.ocr.core.document.RenderOptions;
 
 public final class ApplicationPreferences {
     public enum DirectoryKey {
+        OPEN_PROFILE("openProfileDirectory"),
+        SAVE_PROFILE("saveProfileDirectory"),
         OPEN_CONFIGURATION("openConfigurationDirectory"),
         SAVE_CONFIGURATION("saveConfigurationDirectory"),
         OPEN_DOCUMENT("openDocumentDirectory"),
@@ -25,6 +27,7 @@ public final class ApplicationPreferences {
     }
 
     public enum RecentKey {
+        PROFILE("recentProfiles"),
         CONFIGURATION("recentConfigurations"),
         DOCUMENT("recentDocuments");
 

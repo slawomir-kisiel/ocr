@@ -85,8 +85,10 @@ class BatchDispatcherTest {
             "default",
             new ConfigurationVersion("1.0"),
             Path.of("."),
+            List.of(),
             CategoriesMode.EXPLICIT,
             List.of(new CategoryId("generic")),
+            ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(input, success, error),
             new ProcessingConfiguration(4, 16),
             OcrSettings.defaults(),
@@ -125,3 +127,4 @@ class BatchDispatcherTest {
         return image;
     }
 }
+

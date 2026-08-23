@@ -13,6 +13,7 @@ import pl.sk.ocr.config.runtime.FieldDefinition;
 import pl.sk.ocr.config.runtime.GeometryConfiguration;
 import pl.sk.ocr.config.runtime.OcrSettings;
 import pl.sk.ocr.config.runtime.ProcessingConfiguration;
+import pl.sk.ocr.config.runtime.ProfilePreprocessingConfiguration;
 import pl.sk.ocr.config.runtime.ProfileRuntimeConfiguration;
 import pl.sk.ocr.config.runtime.RuntimeConfiguration;
 import pl.sk.ocr.config.runtime.SinglePageSelection;
@@ -56,8 +57,10 @@ class OutputSchemaBuilderTest {
             "default",
             new ConfigurationVersion("1.0"),
             Path.of("."),
+            List.of(),
             CategoriesMode.EXPLICIT,
             List.of(new CategoryId("invoice")),
+            ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
             new ProcessingConfiguration(1, 4),
             OcrSettings.defaults(),
@@ -83,3 +86,4 @@ class OutputSchemaBuilderTest {
         );
     }
 }
+

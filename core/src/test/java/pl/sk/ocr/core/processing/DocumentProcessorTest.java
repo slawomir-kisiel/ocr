@@ -109,8 +109,10 @@ class DocumentProcessorTest {
             "default",
             new ConfigurationVersion("1.0"),
             Path.of("."),
+            List.of(),
             CategoriesMode.EXPLICIT,
             List.of(new CategoryId("invoice-a")),
+            ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
             new ProcessingConfiguration(1, 4),
             OcrSettings.defaults(),
@@ -143,3 +145,4 @@ class DocumentProcessorTest {
         }
     }
 }
+

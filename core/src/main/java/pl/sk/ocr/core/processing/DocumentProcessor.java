@@ -12,6 +12,7 @@ import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.core.geometry.AnchorDetectionService;
 import pl.sk.ocr.core.geometry.GeometryNormalizationService;
 import pl.sk.ocr.core.geometry.GeometryStatus;
+import pl.sk.ocr.core.image.DocumentImagePreprocessingService;
 import pl.sk.ocr.core.identification.CategoryIdentificationService;
 import pl.sk.ocr.core.identification.IdentificationStatus;
 import pl.sk.ocr.core.ocr.OcrEngine;
@@ -46,6 +47,7 @@ public final class DocumentProcessor {
     private final CategoryIdentificationService identificationService;
     private final AnchorDetectionService anchorDetectionService;
     private final GeometryNormalizationService geometryNormalizationService;
+    private final DocumentImagePreprocessingService documentImagePreprocessingService;
     private final FieldProcessingService fieldProcessingService;
     private final ExtensionRegistry extensionRegistry;
 
@@ -59,6 +61,7 @@ public final class DocumentProcessor {
         this.identificationService = new CategoryIdentificationService(extensionRegistry);
         this.anchorDetectionService = new AnchorDetectionService();
         this.geometryNormalizationService = new GeometryNormalizationService();
+        this.documentImagePreprocessingService = new DocumentImagePreprocessingService(extensionRegistry);
         this.fieldProcessingService = new FieldProcessingService(ocrEngine, extensionRegistry);
         this.extensionRegistry = extensionRegistry;
     }
@@ -67,7 +70,8 @@ public final class DocumentProcessor {
         var documentId = new DocumentId(source.getFileName().toString());
         try {
             var rendered = documentReader.read(source, RenderOptions.defaults());
-            var firstPage = rendered.requirePage(new PageNumber(1));
+            var firstPageNumber = new PageNumber(1);
+            var firstPage = preparePage(firstPageNumber, rendered.requirePage(firstPageNumber), configuration);
             var pageOcr = ocrEngine.recognize(firstPage, options(configuration.profile().ocr()));
             var traceEntries = identificationTrace(configuration.categories(), pageOcr);
             var identification = identificationService.identify(configuration.categories(), pageOcr);
@@ -104,9 +108,16 @@ public final class DocumentProcessor {
                 return DocumentResult.from(documentId, category.id(), List.of(), List.of(issue),
                     trace(configuration.profile().traceMode(), traceEntries, List.of(issue)));
             }
-            var fields = extractFields(category, rendered.pages().get(new PageNumber(1)), geometry.transform());
+            var fields = extractFields(category, firstPage, geometry.transform());
             return DocumentResult.from(documentId, category.id(), fields, List.of(),
                 trace(configuration.profile().traceMode(), traceEntries, List.of()));
+        } catch (DocumentImagePreprocessingException e) {
+            return DocumentResult.from(documentId, null, List.of(), List.of(ProcessingIssue.error(
+                new IssueCode("DOCUMENT_IMAGE_PREPROCESSING_FAILED"),
+                ErrorScope.DOCUMENT,
+                ProcessingStage.PAGE_PREPARATION,
+                e.getCause() == null || e.getCause().getMessage() == null ? e.getMessage() : e.getCause().getMessage()
+            )), ProcessingTrace.off());
         } catch (RuntimeException e) {
             return DocumentResult.from(documentId, null, List.of(), List.of(ProcessingIssue.error(
                 new IssueCode("DOCUMENT_PROCESSING_FAILED"),
@@ -114,6 +125,15 @@ public final class DocumentProcessor {
                 ProcessingStage.DOCUMENT_LOADING,
                 e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()
             )), ProcessingTrace.off());
+        }
+    }
+
+    private ProcessingImage preparePage(PageNumber page, ProcessingImage renderedPage, RuntimeConfiguration configuration) {
+        try {
+            return documentImagePreprocessingService.prepare(page, renderedPage,
+                configuration.profile().preprocessing().imageProcessors());
+        } catch (RuntimeException e) {
+            throw new DocumentImagePreprocessingException(e);
         }
     }
 
@@ -247,6 +267,12 @@ public final class DocumentProcessor {
 
     private OcrOptions options(pl.sk.ocr.config.runtime.OcrSettings settings) {
         return new OcrOptions(settings.language(), settings.datapath());
+    }
+
+    private static final class DocumentImagePreprocessingException extends RuntimeException {
+        private DocumentImagePreprocessingException(Throwable cause) {
+            super(cause);
+        }
     }
 
 }

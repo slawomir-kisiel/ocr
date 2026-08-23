@@ -11,6 +11,7 @@ import pl.sk.ocr.config.runtime.CsvOutputConfiguration;
 import pl.sk.ocr.config.runtime.DirectoriesConfiguration;
 import pl.sk.ocr.config.runtime.OcrSettings;
 import pl.sk.ocr.config.runtime.ProcessingConfiguration;
+import pl.sk.ocr.config.runtime.ProfilePreprocessingConfiguration;
 import pl.sk.ocr.config.runtime.ProfileRuntimeConfiguration;
 import pl.sk.ocr.config.runtime.RuntimeConfiguration;
 import pl.sk.ocr.core.document.DocumentReader;
@@ -126,8 +127,10 @@ public final class TestCategoryUseCase {
             "javafx-preview",
             new ConfigurationVersion(category.version() == null ? "1.0" : category.version()),
             base,
+            List.of(),
             CategoriesMode.EXPLICIT,
             List.of(categoryId),
+            ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(base, base, base),
             new ProcessingConfiguration(1, 1),
             ocrSettings,

@@ -239,6 +239,8 @@ public final class CategoryEditorViewModel {
         status.set("Opening document...");
         return backgroundExecutor.submit(() -> openDocument.open(path, options)).thenAccept(rendered -> {
             session.referenceDocument(path);
+            session.renderedPageCache().clear();
+            session.renderedPageCache().putAll(rendered.pages());
             session.pageCache().clear();
             session.pageCache().putAll(rendered.pages());
             session.currentPage(1);

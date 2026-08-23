@@ -44,14 +44,27 @@ final class ConfigurationMappers {
             dto.id(),
             new ConfigurationVersion(dto.version()),
             resolve(profileDir, categories.directory()),
+            categoryFiles(profileDir, categories.files()),
             mode,
             active,
+            preprocessing(dto.preprocessing()),
             directories(dto.directories(), profileDir),
             new ProcessingConfiguration(workers, queueCapacity),
             ocr(dto.ocr(), OcrSettings.defaults()),
             traceMode,
             csv(dto.output().csv(), profileDir)
         );
+    }
+
+    private static ProfilePreprocessingConfiguration preprocessing(ProfilePreprocessingDto dto) {
+        return dto == null ? ProfilePreprocessingConfiguration.empty() : new ProfilePreprocessingConfiguration(extensions(dto.imageProcessors()));
+    }
+
+    private static List<Path> categoryFiles(Path profileDir, List<String> files) {
+        if (files == null) {
+            return List.of();
+        }
+        return files.stream().map(file -> resolve(profileDir, file)).toList();
     }
 
     private static DirectoriesConfiguration directories(DirectoriesDto dto, Path base) {

@@ -7,6 +7,7 @@ public record ProfileDto(
     String displayName,
     String description,
     ProfileCategoriesDto categories,
+    ProfilePreprocessingDto preprocessing,
     DirectoriesDto directories,
     ProcessingDto processing,
     OcrSettingsDto ocr,

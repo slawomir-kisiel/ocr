@@ -34,6 +34,14 @@ public final class ProfileValidator implements ConfigurationValidator<ProfileDto
             if (mode.equals("ALL") && dto.categories().active() != null && !dto.categories().active().isEmpty()) {
                 problems.add(problem("PROFILE_INVALID", "$.categories.active", "Active categories must be omitted in ALL mode"));
             }
+            if (dto.categories().files() != null) {
+                var files = dto.categories().files();
+                for (int i = 0; i < files.size(); i++) {
+                    if (files.get(i) == null || files.get(i).isBlank()) {
+                        problems.add(problem("PROFILE_INVALID", "$.categories.files[" + i + "]", "Category file path must not be blank"));
+                    }
+                }
+            }
         }
         if (dto.directories() == null) {
             problems.add(problem("PROFILE_INVALID", "$.directories", "Directories section is required"));
@@ -49,6 +57,14 @@ public final class ProfileValidator implements ConfigurationValidator<ProfileDto
         }
         if (dto.ocr() != null && dto.ocr().language() != null && dto.ocr().language().isBlank()) {
             problems.add(problem("OCR_LANGUAGE_INVALID", "$.ocr.language", "OCR language must not be blank"));
+        }
+        if (dto.preprocessing() != null && dto.preprocessing().imageProcessors() != null) {
+            for (int i = 0; i < dto.preprocessing().imageProcessors().size(); i++) {
+                var processor = dto.preprocessing().imageProcessors().get(i);
+                if (processor == null || processor.id() == null || processor.id().isBlank()) {
+                    problems.add(problem("PROFILE_INVALID", "$.preprocessing.imageProcessors[" + i + "].id", "Image processor id is required"));
+                }
+            }
         }
         if (dto.output() == null || dto.output().csv() == null) {
             problems.add(problem("PROFILE_INVALID", "$.output.csv", "CSV output is required"));
