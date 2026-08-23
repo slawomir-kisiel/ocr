@@ -55,6 +55,7 @@ import pl.sk.ocr.config.dto.GeometryDto;
 import pl.sk.ocr.config.dto.GeometryStrategyDto;
 import pl.sk.ocr.config.dto.ProfileCategoriesDto;
 import pl.sk.ocr.config.dto.ProfileDto;
+import pl.sk.ocr.config.ProjectPackageService;
 import pl.sk.ocr.config.runtime.ExtensionRef;
 import pl.sk.ocr.config.dto.ReferenceFeatureDto;
 import pl.sk.ocr.config.dto.RegionDto;
@@ -113,6 +114,7 @@ public final class ConfiguratorApplication extends Application {
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
     private ConfigurationFileService fileService;
+    private ProjectPackageService packageService;
     private Stage primaryStage;
     private final TreeView<ConfigurationTreeNode> configurationTree = new TreeView<>();
     private final ComboBox<ProfileWorkspace.CategoryEntry> profileCategorySelector = new ComboBox<>();
@@ -175,6 +177,7 @@ public final class ConfiguratorApplication extends Application {
         primaryStage = stage;
         services = ConfiguratorServices.production();
         fileService = new ConfigurationFileService(services.mapper());
+        packageService = new ProjectPackageService(services.mapper());
         viewModel = new CategoryEditorViewModel(
             fileService,
             new OpenReferenceDocumentUseCase(services.documentReader()),
@@ -269,6 +272,9 @@ public final class ConfiguratorApplication extends Application {
             openRecentProfiles,
             menuItem("Save Profile", () -> saveProfile(stage, false), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN)),
             menuItem("Save Profile As", () -> saveProfile(stage, true), new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)),
+            new SeparatorMenuItem(),
+            menuItem("Export Profile Package...", () -> exportProfilePackage(stage)),
+            menuItem("Import Profile Package...", () -> importProfilePackage(stage)),
             new SeparatorMenuItem(),
             menuItem("Exit", stage::close)
         );
@@ -963,6 +969,100 @@ public final class ConfiguratorApplication extends Application {
             return true;
         }
         return false;
+    }
+
+    private void exportProfilePackage(Stage stage) {
+        commitCurrentDetailsForm();
+        rememberCurrentWorkspaceDraft();
+        ensureWorkspace();
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Profile Package ZIP", "*.zip"));
+        configureInitialDirectory(chooser, DirectoryKey.SAVE_PROFILE);
+        chooser.setInitialFileName(packageFileName());
+        var file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return;
+        }
+        var includeDocuments = confirmIncludeReferenceDocuments(stage);
+        if (includeDocuments.isEmpty()) {
+            return;
+        }
+        runUiSafe(() -> {
+            var result = packageService.exportPackage(file.toPath(), profileForPackage(), packageCategorySources(), includeDocuments.get());
+            preferences.rememberFile(DirectoryKey.SAVE_PROFILE, file.toPath());
+            var suffix = result.missingReferenceDocuments().isEmpty()
+                ? ""
+                : "; missing documents: " + result.missingReferenceDocuments().size();
+            status.setText("Exported profile package: " + result.targetZip().getFileName()
+                + " (" + result.categoryCount() + " categories, " + result.referenceDocumentCount() + " documents" + suffix + ")");
+        });
+    }
+
+    private void importProfilePackage(Stage stage) {
+        if (!confirmUnsavedChanges(stage)) {
+            return;
+        }
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Profile Package ZIP", "*.zip"));
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_PROFILE);
+        var zip = chooser.showOpenDialog(stage);
+        if (zip == null) {
+            return;
+        }
+        var directoryChooser = new DirectoryChooser();
+        directoryChooser.setTitle("Choose package import directory");
+        configureInitialDirectory(directoryChooser, DirectoryKey.SAVE_PROFILE);
+        var target = directoryChooser.showDialog(stage);
+        if (target == null) {
+            return;
+        }
+        runUiSafe(() -> {
+            var imported = packageService.importPackage(zip.toPath(), target.toPath());
+            preferences.rememberFile(DirectoryKey.OPEN_PROFILE, imported.profilePath());
+            preferences.rememberFile(DirectoryKey.SAVE_PROFILE, imported.profilePath());
+            openProfilePath(imported.profilePath());
+            status.setText("Imported profile package: " + zip.getName());
+        });
+    }
+
+    private Optional<Boolean> confirmIncludeReferenceDocuments(Stage stage) {
+        var alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.initOwner(stage);
+        alert.setTitle("Export Profile Package");
+        alert.setHeaderText("Include reference documents?");
+        alert.setContentText("The package can include only profile and categories, or profile, categories and locally available reference documents.");
+        var include = new ButtonType("With documents", ButtonBar.ButtonData.YES);
+        var without = new ButtonType("Without documents", ButtonBar.ButtonData.NO);
+        alert.getButtonTypes().setAll(include, without, ButtonType.CANCEL);
+        var choice = alert.showAndWait().orElse(ButtonType.CANCEL);
+        if (choice == ButtonType.CANCEL) {
+            return Optional.empty();
+        }
+        return Optional.of(choice == include);
+    }
+
+    private ProfileDto profileForPackage() {
+        var path = workspace.profilePath();
+        var categoriesDirectory = workspace.categoriesDirectory();
+        if (categoriesDirectory == null) {
+            categoriesDirectory = path != null && path.toAbsolutePath().getParent() != null
+                ? path.toAbsolutePath().getParent().resolve("categories").normalize()
+                : Path.of("categories").toAbsolutePath().normalize();
+        }
+        var profilePath = path == null ? Path.of("profile.json").toAbsolutePath().normalize() : path;
+        return profileForSave(profilePath, categoriesDirectory);
+    }
+
+    private List<ProjectPackageService.CategorySource> packageCategorySources() {
+        return workspace.categories().stream()
+            .map(entry -> new ProjectPackageService.CategorySource(entry.path(), entry.draft()))
+            .toList();
+    }
+
+    private String packageFileName() {
+        var profile = workspace.profile();
+        var id = profile == null || profile.id() == null || profile.id().isBlank() ? "profile" : profile.id();
+        return id.replaceAll("[^a-zA-Z0-9._-]+", "-") + ".zip";
     }
 
     private void commitCurrentDetailsForm() {
@@ -2023,6 +2123,10 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void configureInitialDirectory(FileChooser chooser, DirectoryKey key) {
+        preferences.directory(key).map(Path::toFile).ifPresent(chooser::setInitialDirectory);
+    }
+
+    private void configureInitialDirectory(DirectoryChooser chooser, DirectoryKey key) {
         preferences.directory(key).map(Path::toFile).ifPresent(chooser::setInitialDirectory);
     }
 
