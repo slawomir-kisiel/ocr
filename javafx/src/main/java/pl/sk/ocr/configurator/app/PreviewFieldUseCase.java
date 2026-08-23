@@ -51,6 +51,7 @@ public final class PreviewFieldUseCase {
         traceImageStore.clear();
         var fieldDefinition = fieldDefinition(category, field);
         var imageRefs = traceImages(traceImageStore, fieldDefinition, pageImage);
+        var rawOcr = previewRawOcr(fieldDefinition, pageImage);
         var result = fieldProcessingService.extract(fieldDefinition, pageImage, Transform.IDENTITY);
         var trace = new ProcessingTrace(
             TraceMode.FULL,
@@ -60,6 +61,7 @@ public final class PreviewFieldUseCase {
                 "Field preview completed",
                 Map.of(
                     "fieldId", result.fieldId().value(),
+                    "rawOcr", rawOcr,
                     "status", result.status().name(),
                     "value", result.value() == null ? "" : result.value()
                 ),
@@ -67,6 +69,16 @@ public final class PreviewFieldUseCase {
             ))
         );
         return new FieldPreviewResult(result, trace);
+    }
+
+    private String previewRawOcr(FieldDefinition field, ProcessingImage pageImage) {
+        try {
+            return fieldProcessingService.recognizeRaw(field, pageImage, Transform.IDENTITY);
+        } catch (RuntimeException | Error e) {
+            System.err.println("Field preview raw OCR failed; continuing with regular field extraction.");
+            e.printStackTrace(System.err);
+            return "";
+        }
     }
 
     private List<TraceImageRef> traceImages(TraceImageStore traceImageStore, FieldDefinition field, ProcessingImage pageImage) {

@@ -37,6 +37,17 @@ public final class FieldProcessingService {
         this.extensionRegistry = extensionRegistry;
     }
 
+    public String recognizeRaw(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
+        var currentImage = crop(pageImage, field, transform);
+        for (ExtensionRef processorRef : field.imageProcessors()) {
+            currentImage = imageProcessor(processorRef).process(
+                new ImageProcessingRequest(currentImage, parameters(processorRef)),
+                () -> TraceSink.NOOP
+            );
+        }
+        return ocrEngine.recognize(currentImage, options(field.ocr())).value();
+    }
+
     public FieldResult extract(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
         var issues = new ArrayList<ProcessingIssue>();
         ProcessingImage currentImage;

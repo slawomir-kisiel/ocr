@@ -269,6 +269,7 @@ public final class CategoryEditorViewModel {
         return backgroundExecutor.submit(() -> previewField.preview(draft, field, pageImage, session.traceImageStore())).thenApply(result -> {
             if (previewRunGuard.isLatest(runId)) {
                 session.latestTrace(result.trace());
+                session.latestFieldResult(result.fieldResult());
                 status.set("Field preview ready: " + result.fieldResult().fieldId().value()
                     + " | " + result.fieldResult().status());
                 return result;

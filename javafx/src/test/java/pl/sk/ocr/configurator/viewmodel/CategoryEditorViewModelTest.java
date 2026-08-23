@@ -97,7 +97,10 @@ class CategoryEditorViewModelTest {
         var result = viewModel.previewField(0).toCompletableFuture().join();
 
         assertThat(result.fieldResult().value()).isEqualTo("123");
+        assertThat(viewModel.session().latestFieldResult()).isEqualTo(result.fieldResult());
         assertThat(viewModel.session().latestTrace().mode()).isEqualTo(TraceMode.FULL);
+        assertThat(viewModel.session().latestTrace().entries().get(0).attributes())
+            .containsEntry("rawOcr", " 123 ");
         assertThat(viewModel.session().traceImageStore().size()).isEqualTo(2);
         assertThat(viewModel.session().latestTrace().entries().get(0).images())
             .allSatisfy(ref -> assertThat(viewModel.session().traceImageStore().get(ref)).isPresent());
@@ -106,6 +109,38 @@ class CategoryEditorViewModelTest {
         viewModel.updateCategoryMetadata("invoice-updated", "Invoice", "", "1.0");
 
         assertThat(viewModel.session().traceImageStore().size()).isZero();
+        assertThat(viewModel.session().latestFieldResult()).isNull();
+    }
+
+    @Test
+    void fieldPreviewContinuesWhenRawOcrFailsWithError() {
+        var registry = new DefaultExtensionRegistry(new StandardExtensionProvider().extensions());
+        var ocrCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var service = new FieldProcessingService((image, options) -> {
+            if (ocrCalls.incrementAndGet() == 1) {
+                throw new UnsatisfiedLinkError("native OCR failed");
+            }
+            return new OcrText(" 123 ", List.of());
+        }, registry);
+        var viewModel = new CategoryEditorViewModel(
+            new ConfigurationFileService((JsonConfigurationMapper) null),
+            null,
+            null,
+            new PreviewFieldUseCase(service),
+            new DraftValidationService(registry),
+            new ImmediateBackgroundExecutor(),
+            new CategoryDraftEditor()
+        );
+        viewModel.newCategory("invoice", "Invoice");
+        viewModel.addField(new FieldDto("amount", "Amount", 1, new RegionDto(0, 0, 10, 10), true, null,
+            new OutputDto(true, "amount"), List.of(), List.of(new ExtensionRefDto("trim", Map.of())), List.of()));
+        viewModel.session().pageCache().put(new PageNumber(1), image());
+
+        var result = viewModel.previewField(0).toCompletableFuture().join();
+
+        assertThat(result.fieldResult().value()).isEqualTo("123");
+        assertThat(viewModel.session().latestTrace().entries().get(0).attributes())
+            .containsEntry("rawOcr", "");
     }
 
     private OcrText ocr(ProcessingImage image, OcrOptions options) {
