@@ -17,6 +17,8 @@
     <module>config</module>
     <module>extension-api</module>
     <module>extensions-standard</module>
+    <module>imagemagick/image-ocr-preprocess-core</module>
+    <module>extensions-imagemagick</module>
     <module>adapters</module>
     <module>cli</module>
     <module>javafx</module>
