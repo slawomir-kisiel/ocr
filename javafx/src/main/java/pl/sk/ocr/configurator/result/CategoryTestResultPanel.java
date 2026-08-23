@@ -1,6 +1,7 @@
 package pl.sk.ocr.configurator.result;
 
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
@@ -19,6 +20,7 @@ public final class CategoryTestResultPanel {
 
     private final Supplier<DocumentResult> resultSupplier;
     private final Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier;
+    private final Consumer<CategoryReferenceDocumentTestResult> resultSelection;
     private final TableView<DocumentRow> documents = new TableView<>();
     private final Label document = label("Document: -");
     private final Label category = label("Category: -");
@@ -32,9 +34,11 @@ public final class CategoryTestResultPanel {
     private final VBox root;
 
     public CategoryTestResultPanel(Supplier<DocumentResult> resultSupplier,
-                                   Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier) {
+                                   Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier,
+                                   Consumer<CategoryReferenceDocumentTestResult> resultSelection) {
         this.resultSupplier = resultSupplier;
         this.batchResultSupplier = batchResultSupplier;
+        this.resultSelection = resultSelection;
         configureDocuments();
         configureFields();
         issues.setPrefHeight(120);
@@ -57,7 +61,13 @@ public final class CategoryTestResultPanel {
             label("Errors / Warnings"),
             issues
         );
-        documents.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> refreshDetails(selected == null ? null : selected.source().result()));
+        documents.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            var source = selected == null ? null : selected.source();
+            refreshDetails(source == null ? null : source.result());
+            if (resultSelection != null) {
+                resultSelection.accept(source);
+            }
+        });
         refresh();
     }
 
@@ -77,6 +87,9 @@ public final class CategoryTestResultPanel {
             return;
         }
         documents.getItems().clear();
+        if (resultSelection != null) {
+            resultSelection.accept(null);
+        }
         refreshDetails(resultSupplier.get());
     }
 

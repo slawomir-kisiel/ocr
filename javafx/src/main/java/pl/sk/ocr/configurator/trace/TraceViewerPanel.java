@@ -165,7 +165,7 @@ public final class TraceViewerPanel {
     private void show(TraceRow row) {
         details.setText(detailsText(row));
         issues.getItems().setAll(row.issues().stream().map(this::issueText).toList());
-        images.getChildren().setAll(row.images().stream().map(this::imageNode).toList());
+        images.getChildren().setAll(row.images().stream().map(ref -> imageNode(row, ref)).toList());
         if (row.issues().isEmpty()) {
             issues.getItems().setAll("No issues");
         }
@@ -193,7 +193,7 @@ public final class TraceViewerPanel {
         return issue.severity() + " " + issue.code() + " | " + issue.message();
     }
 
-    private Node imageNode(TraceImageRef ref) {
+    private Node imageNode(TraceRow row, TraceImageRef ref) {
         var store = imageStoreSupplier.get();
         var image = store.get(ref);
         if (image.isEmpty()) {
@@ -209,11 +209,21 @@ public final class TraceViewerPanel {
         Tooltip.install(box, new Tooltip("Double-click to open image preview"));
         box.setOnMouseClicked(event -> {
             if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                new TraceImagePreviewDialog().show(ref.label(), image.get());
+                new TraceImagePreviewDialog().show(row.message(), previewImages(row));
             }
         });
         box.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
         return box;
+    }
+
+    private List<TraceImagePreviewDialog.ImagePreview> previewImages(TraceRow row) {
+        var store = imageStoreSupplier.get();
+        return row.images().stream()
+            .map(ref -> store.get(ref)
+                .map(image -> new TraceImagePreviewDialog.ImagePreview(ref, image))
+                .orElse(null))
+            .filter(java.util.Objects::nonNull)
+            .toList();
     }
 
     private Label label(String text) {

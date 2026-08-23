@@ -53,6 +53,11 @@ public final class TestCategoryUseCase {
 
     public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages,
                                TraceImageStore traceImageStore, OcrSettings defaultOcrSettings) {
+        return test(category, documentPath, pages, traceImageStore, defaultOcrSettings, true);
+    }
+
+    public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages,
+                               TraceImageStore traceImageStore, OcrSettings defaultOcrSettings, boolean clearTraceImageStore) {
         if (category == null) {
             throw new IllegalArgumentException("category is required");
         }
@@ -65,7 +70,9 @@ public final class TestCategoryUseCase {
         if (traceImageStore == null) {
             throw new IllegalArgumentException("trace image store is required");
         }
-        traceImageStore.clear();
+        if (clearTraceImageStore) {
+            traceImageStore.clear();
+        }
         var runtime = runtime(category, defaultOcrSettings == null ? OcrSettings.defaults() : defaultOcrSettings);
         var processor = new DocumentProcessor(inMemoryReader(pages), ocrEngine, extensionRegistry);
         var result = processor.process(documentPath, runtime);

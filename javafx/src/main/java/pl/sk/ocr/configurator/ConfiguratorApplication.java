@@ -62,6 +62,7 @@ import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.ProfileWorkspace;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.app.InMemoryTraceImageStore;
+import pl.sk.ocr.configurator.app.TraceImageStore;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
 import pl.sk.ocr.configurator.properties.CategoryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.FieldPropertiesPanel;
@@ -140,6 +141,7 @@ public final class ConfiguratorApplication extends Application {
     private TraceViewerPanel traceViewerPanel;
     private FieldResultPanel fieldResultPanel;
     private CategoryTestResultPanel categoryTestResultPanel;
+    private CategoryReferenceDocumentTestResult activeReferenceDocumentTestResult;
     private final ApplicationPreferences preferences = new ApplicationPreferences();
 
     public static void main(String[] args) {
@@ -181,10 +183,10 @@ public final class ConfiguratorApplication extends Application {
             this::workspaceDebugSourceImage);
         propertiesPanel = new PropertiesPanel(detailsPanel, categoryPropertiesPanel, identificationPropertiesPanel,
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
-        traceViewerPanel = new TraceViewerPanel(() -> viewModel.session().latestTrace(), () -> viewModel.session().traceImageStore());
+        traceViewerPanel = new TraceViewerPanel(this::activeTrace, this::activeTraceImageStore);
         fieldResultPanel = new FieldResultPanel(() -> viewModel.session().latestFieldResult(), () -> viewModel.session().latestTrace());
         categoryTestResultPanel = new CategoryTestResultPanel(() -> viewModel.session().latestDocumentResult(),
-            () -> viewModel.session().latestCategoryTestResults());
+            () -> viewModel.session().latestCategoryTestResults(), this::selectReferenceDocumentTestResult);
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -1286,6 +1288,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void applyWorkspacePreprocessing() {
+        activeReferenceDocumentTestResult = null;
         if (viewModel.session().renderedPageCache().isEmpty() && viewModel.session().pageCache().isEmpty()) {
             status.setText("Open a document before applying preprocessing");
             return;
@@ -1326,7 +1329,7 @@ public final class ConfiguratorApplication extends Application {
         for (var entry : source.entrySet()) {
             var result = service.prepareWithTrace(entry.getKey(), entry.getValue(), refs);
             prepared.put(entry.getKey(), result.image());
-            traceEntries.addAll(workspacePreprocessingTraceEntries(result));
+            traceEntries.addAll(workspacePreprocessingTraceEntries(result, viewModel.session().traceImageStore()));
         }
         var trace = traceEntries.isEmpty()
             ? ProcessingTrace.off()
@@ -1338,11 +1341,12 @@ public final class ConfiguratorApplication extends Application {
         return new WorkspacePreprocessingApplyResult(prepared, trace);
     }
 
-    private List<TraceEntry> workspacePreprocessingTraceEntries(pl.sk.ocr.core.image.DocumentImagePreprocessingResult result) {
+    private List<TraceEntry> workspacePreprocessingTraceEntries(pl.sk.ocr.core.image.DocumentImagePreprocessingResult result,
+                                                                TraceImageStore store) {
         return result.steps().stream().map(step -> {
-            var input = viewModel.session().traceImageStore().put("Workspace preprocessing page "
+            var input = store.put("Workspace preprocessing page "
                 + result.page().value() + " step " + step.order() + " input: " + step.processorId(), step.input());
-            var output = viewModel.session().traceImageStore().put("Workspace preprocessing page "
+            var output = store.put("Workspace preprocessing page "
                 + result.page().value() + " step " + step.order() + " output: " + step.processorId(), step.output());
             var attributes = new java.util.LinkedHashMap<String, Object>();
             attributes.put("scope", "DOCUMENT");
@@ -1359,6 +1363,30 @@ public final class ConfiguratorApplication extends Application {
                 List.of(input, output)
             );
         }).toList();
+    }
+
+    private ProcessingTrace activeTrace() {
+        if (activeReferenceDocumentTestResult != null) {
+            return activeReferenceDocumentTestResult.result() == null
+                ? ProcessingTrace.off()
+                : activeReferenceDocumentTestResult.result().trace();
+        }
+        return viewModel.session().latestTrace();
+    }
+
+    private TraceImageStore activeTraceImageStore() {
+        if (activeReferenceDocumentTestResult != null && activeReferenceDocumentTestResult.traceImageStore() != null) {
+            return activeReferenceDocumentTestResult.traceImageStore();
+        }
+        return viewModel.session().traceImageStore();
+    }
+
+    private void selectReferenceDocumentTestResult(CategoryReferenceDocumentTestResult result) {
+        activeReferenceDocumentTestResult = result;
+        traceViewerPanel.refresh();
+        if (result != null) {
+            status.setText("Selected reference document trace: " + result.referenceDocumentId());
+        }
     }
 
     private pl.sk.ocr.extension.api.image.ProcessingImage workspaceDebugSourceImage(Integer stepIndex) {
@@ -1488,6 +1516,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void runOcr() {
+        activeReferenceDocumentTestResult = null;
         status.setText("Running OCR...");
         viewModel.runCurrentPageOcr(preferences.ocrSettings())
             .whenComplete((ocr, error) -> Platform.runLater(() -> {
@@ -1501,6 +1530,7 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void previewField() {
+        activeReferenceDocumentTestResult = null;
         var fieldIndex = selectedPreviewFieldIndex();
         if (fieldIndex < 0) {
             status.setText("Select a field to preview");
@@ -1522,6 +1552,7 @@ public final class ConfiguratorApplication extends Application {
 
     private void testCategory() {
         commitCurrentDetailsForm();
+        activeReferenceDocumentTestResult = null;
         status.setText("Running category test...");
         viewModel.testCategory(preferences.ocrSettings())
             .whenComplete((result, error) -> Platform.runLater(() -> {
@@ -1556,19 +1587,22 @@ public final class ConfiguratorApplication extends Application {
             var results = new ArrayList<CategoryReferenceDocumentTestResult>();
             for (var document : documents) {
                 var path = resolveCategoryPath(document.path());
+                var traceImageStore = new InMemoryTraceImageStore();
                 if (path == null || !Files.exists(path)) {
                     results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path,
-                        failedReferenceDocumentResult(document, "Reference document is not available")));
+                        failedReferenceDocumentResult(document, "Reference document is not available"), traceImageStore));
                     continue;
                 }
                 try {
                     var rendered = services.documentReader().read(path, renderOptions);
-                    var pages = prepareReferenceDocumentPages(rendered.pages(), steps);
-                    var result = services.testCategory().test(draft, path, pages, new InMemoryTraceImageStore(), settings);
-                    results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path, result));
+                    var preprocessing = prepareReferenceDocumentPages(rendered.pages(), steps, traceImageStore);
+                    var result = services.testCategory().test(draft, path, preprocessing.pages(), traceImageStore, settings, false);
+                    results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path,
+                        withPrependedTrace(result, preprocessing.trace()), traceImageStore));
                 } catch (RuntimeException e) {
                     results.add(new CategoryReferenceDocumentTestResult(document.id(), document.path(), path,
-                        failedReferenceDocumentResult(document, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())));
+                        failedReferenceDocumentResult(document, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()),
+                        traceImageStore));
                 }
             }
             return List.copyOf(results);
@@ -1579,6 +1613,7 @@ public final class ConfiguratorApplication extends Application {
             }
             viewModel.session().latestCategoryTestResults(results);
             var first = results.isEmpty() ? null : results.getFirst().result();
+            activeReferenceDocumentTestResult = results.isEmpty() ? null : results.getFirst();
             viewModel.session().latestDocumentResult(first);
             viewModel.session().latestTrace(first == null ? ProcessingTrace.off() : first.trace());
             refreshAll();
@@ -1588,22 +1623,48 @@ public final class ConfiguratorApplication extends Application {
         }));
     }
 
-    private Map<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage> prepareReferenceDocumentPages(
+    private WorkspacePreprocessingApplyResult prepareReferenceDocumentPages(
         Map<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage> rendered,
-        List<ExtensionRefDto> steps
+        List<ExtensionRefDto> steps,
+        TraceImageStore traceImageStore
     ) {
         if (steps == null || steps.isEmpty()) {
-            return rendered;
+            return new WorkspacePreprocessingApplyResult(rendered, ProcessingTrace.off());
         }
         var refs = steps.stream()
             .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
             .toList();
         var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
         var prepared = new java.util.LinkedHashMap<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage>();
+        var traceEntries = new ArrayList<TraceEntry>();
         for (var entry : rendered.entrySet()) {
-            prepared.put(entry.getKey(), service.prepare(entry.getKey(), entry.getValue(), refs));
+            var result = service.prepareWithTrace(entry.getKey(), entry.getValue(), refs);
+            prepared.put(entry.getKey(), result.image());
+            traceEntries.addAll(workspacePreprocessingTraceEntries(result, traceImageStore));
         }
-        return prepared;
+        return new WorkspacePreprocessingApplyResult(prepared, traceEntries.isEmpty()
+            ? ProcessingTrace.off()
+            : new ProcessingTrace(
+                TraceMode.FULL,
+                List.of(new StageResult(ProcessingStage.PAGE_PREPARATION, ProcessingStatus.SUCCESS, List.of())),
+                traceEntries
+            ));
+    }
+
+    private DocumentResult withPrependedTrace(DocumentResult result, ProcessingTrace preprocessingTrace) {
+        if (result == null || preprocessingTrace == null || preprocessingTrace.entries().isEmpty()) {
+            return result;
+        }
+        var trace = result.trace() == null ? ProcessingTrace.off() : result.trace();
+        var stages = new ArrayList<StageResult>();
+        stages.addAll(preprocessingTrace.stages());
+        stages.addAll(trace.stages());
+        var entries = new ArrayList<TraceEntry>();
+        entries.addAll(preprocessingTrace.entries());
+        entries.addAll(trace.entries());
+        var mode = trace.mode() == TraceMode.OFF ? TraceMode.FULL : trace.mode();
+        return new DocumentResult(result.documentId(), result.categoryId(), result.status(), result.fields(), result.issues(),
+            new ProcessingTrace(mode, stages, entries));
     }
 
     private DocumentResult failedReferenceDocumentResult(CategoryReferenceDocumentDto document, String message) {
@@ -1629,7 +1690,7 @@ public final class ConfiguratorApplication extends Application {
         }
         status.setText("Exporting selected trace image...");
         services.backgroundExecutor().submit(() -> diagnosticExport.exportSelectedImage(directory,
-                viewModel.session().latestTrace(), viewModel.session().traceImageStore(), traceViewerPanel.selectedImageRefs()))
+                activeTrace(), activeTraceImageStore(), traceViewerPanel.selectedImageRefs()))
             .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
     }
 
@@ -1640,7 +1701,7 @@ public final class ConfiguratorApplication extends Application {
         }
         status.setText("Exporting trace images...");
         services.backgroundExecutor().submit(() -> diagnosticExport.exportAllImages(directory,
-                viewModel.session().latestTrace(), viewModel.session().traceImageStore()))
+                activeTrace(), activeTraceImageStore()))
             .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
     }
 
@@ -1650,7 +1711,7 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         status.setText("Exporting trace metadata...");
-        services.backgroundExecutor().submit(() -> diagnosticExport.exportMetadata(directory, viewModel.session().latestTrace()))
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportMetadata(directory, activeTrace()))
             .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
     }
 
@@ -1666,7 +1727,7 @@ public final class ConfiguratorApplication extends Application {
         preferences.rememberFile(DirectoryKey.EXPORT_DOCUMENT, file.toPath());
         status.setText("Exporting diagnostic bundle...");
         services.backgroundExecutor().submit(() -> diagnosticExport.exportBundle(file.toPath(),
-                viewModel.session().latestTrace(), viewModel.session().traceImageStore()))
+                activeTrace(), activeTraceImageStore()))
             .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
     }
 
