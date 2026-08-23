@@ -13,6 +13,7 @@ import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.core.geometry.AnchorDetectionService;
 import pl.sk.ocr.core.geometry.GeometryNormalizationService;
 import pl.sk.ocr.core.geometry.GeometryStatus;
+import pl.sk.ocr.core.image.BufferedProcessingImage;
 import pl.sk.ocr.core.image.DocumentImagePreprocessingService;
 import pl.sk.ocr.core.identification.CategoryIdentificationService;
 import pl.sk.ocr.core.identification.IdentificationStatus;
@@ -38,9 +39,13 @@ import pl.sk.ocr.extension.api.DefaultExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionParameters;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionType;
+import pl.sk.ocr.extension.api.detector.DetectionRequest;
+import pl.sk.ocr.extension.api.detector.DetectionStatus;
+import pl.sk.ocr.extension.api.detector.Detector;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
 import pl.sk.ocr.extension.api.matcher.MatchRequest;
 import pl.sk.ocr.extension.api.matcher.Matcher;
+import pl.sk.ocr.extension.api.trace.TraceSink;
 
 public final class DocumentProcessor {
     private final DocumentReader documentReader;
@@ -60,7 +65,7 @@ public final class DocumentProcessor {
         this.documentReader = documentReader;
         this.ocrEngine = ocrEngine;
         this.identificationService = new CategoryIdentificationService(extensionRegistry);
-        this.anchorDetectionService = new AnchorDetectionService();
+        this.anchorDetectionService = new AnchorDetectionService(extensionRegistry);
         this.geometryNormalizationService = new GeometryNormalizationService();
         this.documentImagePreprocessingService = new DocumentImagePreprocessingService(extensionRegistry);
         this.fieldProcessingService = new FieldProcessingService(ocrEngine, extensionRegistry);
@@ -74,8 +79,8 @@ public final class DocumentProcessor {
             var firstPageNumber = new PageNumber(1);
             var firstPage = preparePage(firstPageNumber, rendered.requirePage(firstPageNumber), configuration);
             var pageOcr = ocrEngine.recognize(firstPage, options(configuration.profile().ocr()));
-            var traceEntries = identificationTrace(configuration.categories(), pageOcr);
-            var identification = identificationService.identify(configuration.categories(), pageOcr);
+            var traceEntries = identificationTrace(configuration.categories(), pageOcr, firstPage);
+            var identification = identificationService.identify(configuration.categories(), pageOcr, firstPage);
             if (identification.status() == IdentificationStatus.NOT_FOUND) {
                 var issue = ProcessingIssue.error(
                     new IssueCode("CATEGORY_NOT_IDENTIFIED"),
@@ -101,7 +106,7 @@ public final class DocumentProcessor {
                 return DocumentResult.from(documentId, category.id(), List.of(), List.of(),
                     trace(configuration.profile().traceMode(), traceEntries, List.of()));
             }
-            var referenceFeatures = anchorDetectionService.detect(category, pageOcr);
+            var referenceFeatures = anchorDetectionService.detect(category, pageOcr, firstPage);
             var geometry = geometryNormalizationService.normalize(category, referenceFeatures);
             if (geometry.status() == GeometryStatus.FAILED) {
                 var issue = ProcessingIssue.error(
@@ -150,7 +155,8 @@ public final class DocumentProcessor {
         return new ProcessingTrace(mode, List.of(new StageResult(ProcessingStage.CATEGORY_IDENTIFICATION, status, issues)), entries);
     }
 
-    private List<TraceEntry> identificationTrace(List<CategoryRuntimeConfiguration> categories, pl.sk.ocr.domain.ocr.OcrText pageOcr) {
+    private List<TraceEntry> identificationTrace(List<CategoryRuntimeConfiguration> categories, pl.sk.ocr.domain.ocr.OcrText pageOcr,
+                                                 ProcessingImage pageImage) {
         var entries = new ArrayList<TraceEntry>();
         for (var category : categories) {
             var groups = category.identificationGroups();
@@ -159,7 +165,10 @@ public final class DocumentProcessor {
                 for (int conditionIndex = 0; conditionIndex < conditions.size(); conditionIndex++) {
                     var condition = conditions.get(conditionIndex);
                     var attributes = new java.util.LinkedHashMap<String, Object>();
-                    var haystack = condition.searchRegion() == null ? pageOcr.value() : wordsInRegion(pageOcr.words(), condition.searchRegion());
+                    var detectorPayload = detectorPayload(condition, pageImage);
+                    var haystack = isDetectorCondition(condition)
+                        ? detectorPayload
+                        : condition.searchRegion() == null ? pageOcr.value() : wordsInRegion(pageOcr.words(), condition.searchRegion());
                     var normalizedHaystack = normalize(haystack);
                     var normalizedExpected = normalize(condition.expectedText());
                     var matches = conditionMatches(condition, haystack, normalizedHaystack, normalizedExpected);
@@ -175,6 +184,9 @@ public final class DocumentProcessor {
                     attributes.put("searchRegion", regionText(condition.searchRegion()));
                     attributes.put("ocrWordsTotal", pageOcr.words().size());
                     attributes.put("ocrTextInRegion", haystack);
+                    if (isDetectorCondition(condition)) {
+                        attributes.put("detectorPayload", detectorPayload);
+                    }
                     attributes.put("normalizedOcrTextInRegion", normalizedHaystack);
                     attributes.put("matched", matches);
                     entries.add(new TraceEntry(
@@ -201,8 +213,37 @@ public final class DocumentProcessor {
         return switch (condition.type()) {
             case "TEXT" -> normalizedHaystack.contains(normalizedExpected);
             case "TEXT_FUZZY" -> normalizedHaystack.contains(normalizedExpected) || similarity(normalizedHaystack, normalizedExpected) >= 0.80;
+            case "QR", "BARCODE" -> normalizedExpected.isBlank() ? !haystack.isBlank() : normalizedHaystack.contains(normalizedExpected);
             default -> false;
         };
+    }
+
+    private String detectorPayload(IdentificationCondition condition, ProcessingImage pageImage) {
+        if (!isDetectorCondition(condition) || pageImage == null || condition.detector() == null) {
+            return "";
+        }
+        var extension = extensionRegistry.find(condition.detector().id());
+        if (extension.isEmpty() || !(extension.get() instanceof Detector detector)) {
+            return "";
+        }
+        try {
+            var result = detector.detect(new DetectionRequest(detectorImage(pageImage, condition.searchRegion()), condition.expectedText(),
+                ExtensionParameters.of(condition.detector().parameters())), () -> TraceSink.NOOP);
+            return result.status() == DetectionStatus.DETECTED ? result.message() : "";
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    private ProcessingImage detectorImage(ProcessingImage pageImage, Region searchRegion) {
+        if (searchRegion == null) {
+            return pageImage;
+        }
+        return new BufferedProcessingImage(pageImage.asBufferedImage()).crop(searchRegion);
+    }
+
+    private boolean isDetectorCondition(IdentificationCondition condition) {
+        return "QR".equals(condition.type()) || "BARCODE".equals(condition.type());
     }
 
     private String matcherStatus(IdentificationCondition condition) {

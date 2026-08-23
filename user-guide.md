@@ -334,6 +334,8 @@ Profil zapisze względną ścieżkę do pliku kategorii, jeżeli jest to możliw
 
 Dla większych regionów tekstowych zwykle wygodniejszy jest matcher `contains` niż dokładne dopasowanie tekstu.
 
+Dla warunków `QR` i `BARCODE` należy wybrać odpowiednio detector `qr` albo `barcode`. `Expected Text` może być puste, jeżeli samo wykrycie kodu wystarcza do identyfikacji kategorii. Jeżeli wartość jest podana, porównywana jest z payloadem odczytanym z kodu, a `Search Region` ogranicza obszar dekodowania.
+
 ### 3.6. Konfiguracja anchor i geometrii
 
 1. Dodaj anchor w sekcji `Anchors`.
@@ -342,6 +344,8 @@ Dla większych regionów tekstowych zwykle wygodniejszy jest matcher `contains` 
 4. Narysuj `Reference Feature`, czyli wzorcowe położenie cechy anchor.
 5. Przejdź do `Geometry` i wybierz strategię geometrii.
 6. Uruchom `Test Category` i sprawdź warstwy anchor oraz diagnostykę.
+
+Anchor może korzystać z detectora `text`, `qr` albo `barcode`. Dla `qr` i `barcode` pozycja `Reference Feature` jest ustalana na podstawie geometrii kodu zwróconej przez ZXing, a puste współrzędne `Search Region` oznaczają szukanie na całej stronie.
 
 ### 3.7. Konfiguracja pola
 
