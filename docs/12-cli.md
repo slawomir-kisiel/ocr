@@ -111,6 +111,7 @@ cli --profile <file> [options]
 | `--success` | path | Nie | Override katalogu success |
 | `--error` | path | Nie | Override katalogu error |
 | `--workers` | integer | Nie | Override liczby workerów |
+| `--mode` | enum | Nie | Override trybu przetwarzania: `FULL` albo `CLASSIFY_ONLY` |
 | `--output` | path | Nie | Override pliku CSV |
 | `--trace` | enum | Nie | `OFF`, `BASIC`, `FULL` |
 | `--ocr-datapath` | path | Nie | Override Tesseract datapath |

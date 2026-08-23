@@ -54,6 +54,10 @@ public final class ProfileValidator implements ConfigurationValidator<ProfileDto
             problems.add(problem("PROFILE_INVALID", "$.processing.workers", "workers must be >= 1"));
         } else if (dto.processing().queueCapacity() != null && dto.processing().queueCapacity() < dto.processing().workers()) {
             problems.add(problem("PROFILE_INVALID", "$.processing.queueCapacity", "queueCapacity must be >= workers"));
+        } else if (dto.processing().mode() != null
+            && !dto.processing().mode().equals("FULL")
+            && !dto.processing().mode().equals("CLASSIFY_ONLY")) {
+            problems.add(problem("PROFILE_INVALID", "$.processing.mode", "Unsupported processing mode"));
         }
         if (dto.ocr() != null && dto.ocr().language() != null && dto.ocr().language().isBlank()) {
             problems.add(problem("OCR_LANGUAGE_INVALID", "$.ocr.language", "OCR language must not be blank"));

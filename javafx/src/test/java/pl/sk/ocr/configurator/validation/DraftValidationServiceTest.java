@@ -29,6 +29,6 @@ class DraftValidationServiceTest {
         ));
 
         assertThat(problems).extracting(DraftValidationProblem::code)
-            .contains("CONFIGURATION_INVALID", "CATEGORY_IDENTIFICATION_REQUIRED", "FIELDS_REQUIRED");
+            .contains("CONFIGURATION_INVALID", "CATEGORY_IDENTIFICATION_REQUIRED");
     }
 }

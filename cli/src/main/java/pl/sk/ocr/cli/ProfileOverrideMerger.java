@@ -15,7 +15,8 @@ public final class ProfileOverrideMerger {
         );
         var processing = new ProcessingConfiguration(
             options.workers() == null ? profile.processing().workers() : options.workers(),
-            profile.processing().queueCapacity()
+            profile.processing().queueCapacity(),
+            options.mode() == null ? profile.processing().mode() : options.mode()
         );
         var datapath = options.ocrDatapath() == null ? profile.ocr().datapath() : options.ocrDatapath().toAbsolutePath().normalize().toString();
         var ocr = new OcrSettings(

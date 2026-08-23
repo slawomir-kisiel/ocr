@@ -27,8 +27,8 @@ final class ConfigurationMappers {
             ocr,
             geometry(dto.geometry()),
             groups(dto.identification()),
-            dto.anchors().stream().map(ConfigurationMappers::anchor).toList(),
-            dto.fields().stream().map(field -> field(field, ocr)).toList()
+            dto.anchors() == null ? List.of() : dto.anchors().stream().map(ConfigurationMappers::anchor).toList(),
+            dto.fields() == null ? List.of() : dto.fields().stream().map(field -> field(field, ocr)).toList()
         );
     }
 
@@ -39,6 +39,7 @@ final class ConfigurationMappers {
         var active = categories.active() == null ? List.<CategoryId>of() : categories.active().stream().map(CategoryId::new).toList();
         var workers = dto.processing().workers() == null ? 1 : dto.processing().workers();
         var queueCapacity = dto.processing().queueCapacity() == null ? workers * 4 : dto.processing().queueCapacity();
+        var processingMode = dto.processing().mode() == null ? ProcessingMode.FULL : ProcessingMode.valueOf(dto.processing().mode());
         var traceMode = dto.trace() == null || dto.trace().mode() == null ? TraceMode.OFF : TraceMode.valueOf(dto.trace().mode());
         return new ProfileRuntimeConfiguration(
             dto.id(),
@@ -49,7 +50,7 @@ final class ConfigurationMappers {
             active,
             preprocessing(dto.preprocessing()),
             directories(dto.directories(), profileDir),
-            new ProcessingConfiguration(workers, queueCapacity),
+            new ProcessingConfiguration(workers, queueCapacity, processingMode),
             ocr(dto.ocr(), OcrSettings.defaults()),
             traceMode,
             csv(dto.output().csv(), profileDir)

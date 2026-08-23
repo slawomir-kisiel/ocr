@@ -73,7 +73,24 @@ class DocumentProcessorTest {
             .satisfies(issue -> assertThat(issue.code().value()).isEqualTo("CATEGORY_AMBIGUOUS"));
     }
 
+    @Test
+    void classifyOnlyStopsAfterCategoryIdentification() {
+        var reader = (pl.sk.ocr.core.document.DocumentReader) (source, options) ->
+            new RenderedDocument(Map.of(new PageNumber(1), new BufferedProcessingImage(testImage())));
+        var processor = new DocumentProcessor(reader, new FakeOcrEngine());
+
+        var result = processor.process(Path.of("classify.pdf"), configuration(ProcessingMode.CLASSIFY_ONLY));
+
+        assertThat(result.status()).isEqualTo(ProcessingStatus.SUCCESS);
+        assertThat(result.categoryId()).isEqualTo(new CategoryId("invoice-a"));
+        assertThat(result.fields()).isEmpty();
+    }
+
     private static RuntimeConfiguration configuration() {
+        return configuration(ProcessingMode.FULL);
+    }
+
+    private static RuntimeConfiguration configuration(ProcessingMode mode) {
         var field = new FieldDefinition(
             new FieldId("document-number"),
             "Document number",
@@ -114,7 +131,7 @@ class DocumentProcessorTest {
             List.of(new CategoryId("invoice-a")),
             ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
-            new ProcessingConfiguration(1, 4),
+            new ProcessingConfiguration(1, 4, mode),
             OcrSettings.defaults(),
             TraceMode.OFF,
             new CsvOutputConfiguration(Path.of("result.csv"), java.nio.charset.StandardCharsets.UTF_8, ";", "\"", true, false)

@@ -76,7 +76,8 @@ Profil nie zawiera definicji pól ani kotwic kategorii.
   },
 
   "processing": {
-    "workers": 4
+    "workers": 4,
+    "mode": "FULL"
   },
 
   "ocr": {
@@ -390,10 +391,16 @@ Nie wykonujemy automatycznego rename.
 {
   "processing": {
     "workers": 4,
-    "queueCapacity": 16
+    "queueCapacity": 16,
+    "mode": "FULL"
   }
 }
 ```
+
+Pole `mode` jest opcjonalne. Obsługiwane wartości:
+
+- `FULL` - pełne przetwarzanie: identyfikacja kategorii, geometria, ekstrakcja pól i output,
+- `CLASSIFY_ONLY` - tylko identyfikacja kategorii; geometria i pola nie są przetwarzane.
 
 ## 24. workers
 
@@ -1020,6 +1027,7 @@ Rekomendowane:
 | `directories.success` | Tak |
 | `directories.error` | Tak |
 | `processing.workers` | Tak |
+| `processing.mode` | Tak |
 | `trace.mode` | Tak |
 | `output.csv.file` | Tak |
 | `logging.level` | Tak |

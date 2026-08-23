@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.List;
 import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
 import pl.sk.ocr.config.runtime.IdentificationCondition;
+import pl.sk.ocr.config.runtime.ProcessingMode;
 import pl.sk.ocr.config.runtime.RuntimeConfiguration;
 import pl.sk.ocr.core.document.DocumentReader;
 import pl.sk.ocr.core.document.RenderOptions;
@@ -96,6 +97,10 @@ public final class DocumentProcessor {
                     trace(configuration.profile().traceMode(), traceEntries, List.of(issue)));
             }
             var category = identification.category();
+            if (configuration.profile().processing().mode() == ProcessingMode.CLASSIFY_ONLY) {
+                return DocumentResult.from(documentId, category.id(), List.of(), List.of(),
+                    trace(configuration.profile().traceMode(), traceEntries, List.of()));
+            }
             var referenceFeatures = anchorDetectionService.detect(category, pageOcr);
             var geometry = geometryNormalizationService.normalize(category, referenceFeatures);
             if (geometry.status() == GeometryStatus.FAILED) {

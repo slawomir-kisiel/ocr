@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+import pl.sk.ocr.config.runtime.ProcessingMode;
 import pl.sk.ocr.domain.trace.TraceMode;
 
 @Command(
@@ -23,6 +24,8 @@ public final class CliOptions implements Callable<Integer> {
     private Path error;
     @Option(names = "--workers", description = "Override number of workers")
     private Integer workers;
+    @Option(names = "--mode", description = "FULL or CLASSIFY_ONLY")
+    private ProcessingMode mode;
     @Option(names = "--output", description = "Override CSV output file")
     private Path output;
     @Option(names = "--summary-json", description = "Write machine-readable batch summary JSON")
@@ -59,6 +62,10 @@ public final class CliOptions implements Callable<Integer> {
 
     public Integer workers() {
         return workers;
+    }
+
+    public ProcessingMode mode() {
+        return mode;
     }
 
     public Path output() {

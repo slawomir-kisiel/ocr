@@ -87,7 +87,6 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
 
     private void validateAnchors(List<AnchorDto> anchors, GeometryDto geometry, List<ConfigurationProblem> problems) {
         if (anchors == null) {
-            problems.add(problem("ANCHORS_REQUIRED", "$.anchors", "Anchors array is required"));
             return;
         }
         var ids = new HashSet<String>();
@@ -121,7 +120,6 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
 
     private void validateFields(List<FieldDto> fields, List<ConfigurationProblem> problems) {
         if (fields == null || fields.isEmpty()) {
-            problems.add(problem("FIELDS_REQUIRED", "$.fields", "At least one field is required"));
             return;
         }
         var ids = new HashSet<String>();

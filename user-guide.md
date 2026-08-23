@@ -453,6 +453,7 @@ sk-ocr --profile <plik-profilu> [opcje]
 | `--success` | path | Nie | Nadpisuje katalog dokumentów przetworzonych poprawnie |
 | `--error` | path | Nie | Nadpisuje katalog dokumentów z błędem |
 | `--workers` | integer | Nie | Nadpisuje liczbę równoległych workerów; wartość musi być większa lub równa `1` |
+| `--mode` | enum | Nie | Nadpisuje tryb przetwarzania; dozwolone wartości: `FULL`, `CLASSIFY_ONLY` |
 | `--output` | path | Nie | Nadpisuje ścieżkę pliku CSV z wynikiem |
 | `--summary-json` | path | Nie | Zapisuje techniczne podsumowanie batcha w JSON |
 | `--trace` | enum | Nie | Nadpisuje tryb trace; dozwolone wartości: `OFF`, `BASIC`, `FULL` |
@@ -475,6 +476,8 @@ Przykład: jeżeli profil ma katalog wejściowy `./input`, ale wywołanie zawier
 to podczas tego uruchomienia użyty zostanie katalog `C:\ocr\inbox`. Plik profilu nie jest przez to modyfikowany.
 
 Jeżeli `--profile` wskazuje plik ZIP, CLI najpierw rozpakowuje paczkę do katalogu tymczasowego, a następnie uruchamia standardowe ładowanie profilu z rozpakowanego `profile.json`. Override działa tak samo dla profilu JSON i paczki ZIP.
+
+Tryb `--mode CLASSIFY_ONLY` kończy przetwarzanie po identyfikacji kategorii. CLI nadal zapisuje CSV, ale zawiera on tylko kolumny techniczne, między innymi nazwę pliku, `categoryId`, status i kody błędów. Geometria, anchor i ekstrakcja pól nie są wtedy uruchamiane.
 
 ### 4.6. Trace
 
@@ -566,6 +569,15 @@ java -jar cli/target/cli-0.1.0-SNAPSHOT.jar \
   --workers 8
 ```
 
+Uruchomienie tylko w trybie kategoryzacji:
+
+```bash
+java -jar cli/target/cli-0.1.0-SNAPSHOT.jar \
+  --profile config/profiles/production.json \
+  --mode CLASSIFY_ONLY \
+  --output /data/ocr/categories.csv
+```
+
 Uruchomienie z diagnostyką:
 
 ```bash
@@ -645,6 +657,13 @@ if ($LASTEXITCODE -ne 0) {
 3. Przekaż ZIP na maszynę uruchomieniową.
 4. Uruchom CLI z `--profile <plik.zip>`.
 5. Opcjonalnie użyj `--input`, `--success`, `--error` i `--output`, aby wskazać katalogi właściwe dla środowiska uruchomieniowego.
+
+#### 4.10.7. Sama kategoryzacja dokumentów
+
+1. Przygotuj profil i kategorie z poprawną sekcją identyfikacji.
+2. Uruchom CLI z `--mode CLASSIFY_ONLY`.
+3. Sprawdź CSV wynikowy, w którym `categoryId` wskazuje rozpoznaną kategorię.
+4. Dokumenty z nierozpoznaną albo niejednoznaczną kategorią otrzymają odpowiedni status i kod błędu.
 
 ## 5. Typowy przepływ end-to-end
 
