@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import static pl.sk.ocr.configurator.ui.FormControls.*;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -27,6 +28,8 @@ import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.ZoomEvent;
 import javafx.scene.layout.BorderPane;
@@ -44,6 +47,8 @@ import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.CategoryDto;
 import pl.sk.ocr.config.dto.CategoryReferenceDocumentDto;
 import pl.sk.ocr.config.dto.CategoryReferenceDocumentsDto;
+import pl.sk.ocr.config.dto.AnchorDto;
+import pl.sk.ocr.config.dto.ConditionDto;
 import pl.sk.ocr.config.dto.DirectoriesDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.GeometryDto;
@@ -119,6 +124,9 @@ public final class ConfiguratorApplication extends Application {
     private final ScrollPane detailsScroll = new ScrollPane(detailsPanel);
     private final Label detailsInfo = new Label();
     private final TableView<ValidationRow> validationTable = new TableView<>();
+    private final TableView<OcrExplorerRow> ocrExplorerTable = new TableView<>();
+    private final ComboBox<String> ocrExplorerLevel = new ComboBox<>();
+    private final TextField ocrExplorerFilter = new TextField();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
     private final Button previousPage = compactButton("<", "Previous Page", () -> changePage(-1));
@@ -142,6 +150,7 @@ public final class ConfiguratorApplication extends Application {
     private boolean layerFieldRegions;
     private boolean layerCurrentSelection = true;
     private boolean layerDiagnostics;
+    private OcrExplorerRow selectedOcrExplorerRow;
     private String pendingTreeSelectionId;
     private GeometryPropertiesPanel geometryPropertiesPanel;
     private AnchorPropertiesPanel anchorPropertiesPanel;
@@ -454,6 +463,7 @@ public final class ConfiguratorApplication extends Application {
             refreshDetails();
         });
         configureValidationTable();
+        configureOcrExplorerTable();
         configureCategoryDetailsForm();
         detailsScroll.setFitToWidth(true);
         detailsScroll.setFitToHeight(false);
@@ -476,6 +486,7 @@ public final class ConfiguratorApplication extends Application {
         validationTraceScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
         var tabs = new TabPane(
             closableTab("Properties", propertiesTabContent),
+            closableTab("OCR", ocrExplorerView()),
             closableTab("Validation/Trace", validationTraceScroll)
         );
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -563,6 +574,98 @@ public final class ConfiguratorApplication extends Application {
         column.setPrefWidth(width);
         column.setStyle("-fx-text-fill: #111827;");
         return column;
+    }
+
+    private void configureOcrExplorerTable() {
+        ocrExplorerLevel.getItems().setAll("Words", "Lines", "Paragraphs", "Areas");
+        ocrExplorerLevel.getSelectionModel().select("Words");
+        ocrExplorerLevel.setTooltip(new Tooltip("OCR hierarchy level displayed in the explorer."));
+        ocrExplorerLevel.setOnAction(event -> refreshOcrExplorer());
+        ocrExplorerFilter.setPromptText("Filter text");
+        ocrExplorerFilter.setTooltip(new Tooltip("Filter OCR entries by text."));
+        ocrExplorerFilter.textProperty().addListener((obs, old, value) -> refreshOcrExplorer());
+        ocrExplorerTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        ocrExplorerTable.getColumns().add(ocrColumn("Level", "level", 80));
+        ocrExplorerTable.getColumns().add(ocrColumn("Text", "text", 220));
+        ocrExplorerTable.getColumns().add(ocrColumn("Confidence", "confidence", 90));
+        ocrExplorerTable.getColumns().add(ocrColumn("Page", "page", 60));
+        ocrExplorerTable.getColumns().add(ocrColumn("Bounds", "bounds", 180));
+        ocrExplorerTable.setStyle("-fx-text-fill: #111827;");
+        ocrExplorerTable.getSelectionModel().selectedItemProperty().addListener((obs, old, row) -> {
+            selectedOcrExplorerRow = row;
+            if (row != null) {
+                detailsInfo.setText("OCR " + row.level().toLowerCase(java.util.Locale.ROOT) + ": " + row.text() + " | bounds=" + row.region());
+            }
+            renderOcrOverlay();
+        });
+        ocrExplorerTable.setRowFactory(table -> {
+            var row = new TableRow<OcrExplorerRow>();
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty()) {
+                    selectedOcrExplorerRow = row.getItem();
+                    detailsInfo.setText("OCR " + selectedOcrExplorerRow.level().toLowerCase(java.util.Locale.ROOT) + ": "
+                        + selectedOcrExplorerRow.text() + " | bounds=" + selectedOcrExplorerRow.region());
+                    renderOcrOverlay();
+                }
+            });
+            return row;
+        });
+        ocrExplorerTable.skinProperty().addListener((obs, old, skin) ->
+            Platform.runLater(() -> {
+                ocrExplorerTable.lookupAll(".column-header .label")
+                    .forEach(node -> node.setStyle("-fx-text-fill: #111827;"));
+                ocrExplorerTable.lookupAll(".table-cell")
+                    .forEach(node -> node.setStyle("-fx-text-fill: #111827;"));
+            }));
+    }
+
+    private TableColumn<OcrExplorerRow, String> ocrColumn(String title, String property, double width) {
+        var column = new TableColumn<OcrExplorerRow, String>(title);
+        column.setCellValueFactory(cell -> new ReadOnlyStringWrapper(ocrExplorerValue(cell.getValue(), property)));
+        column.setPrefWidth(width);
+        column.setStyle("-fx-text-fill: #111827;");
+        column.setCellFactory(col -> {
+            var cell = new javafx.scene.control.TableCell<OcrExplorerRow, String>() {
+                @Override
+                protected void updateItem(String item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setText(empty || item == null ? "" : item);
+                    setStyle("-fx-text-fill: #111827;");
+                }
+            };
+            return cell;
+        });
+        return column;
+    }
+
+    private String ocrExplorerValue(OcrExplorerRow row, String property) {
+        if (row == null) {
+            return "";
+        }
+        return switch (property) {
+            case "level" -> row.level();
+            case "text" -> row.text();
+            case "confidence" -> row.confidence();
+            case "page" -> row.page();
+            case "bounds" -> row.bounds();
+            default -> "";
+        };
+    }
+
+    private VBox ocrExplorerView() {
+        var run = button("Run OCR", this::runOcr);
+        var useCondition = button("Use as Identification Condition", this::useSelectedOcrAsCondition);
+        var useAnchor = button("Use as Anchor", this::useSelectedOcrAsAnchor);
+        var copy = button("Copy Text", this::copySelectedOcrText);
+        var filterBar = new HBox(6, sectionLabel("Level"), ocrExplorerLevel, ocrExplorerFilter, run);
+        filterBar.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(ocrExplorerFilter, Priority.ALWAYS);
+        var actions = new HBox(6, useCondition, useAnchor, copy);
+        actions.setAlignment(Pos.CENTER_LEFT);
+        var view = new VBox(8, sectionLabel("OCR Explorer"), filterBar, ocrExplorerTable, actions);
+        view.setPadding(new Insets(8));
+        VBox.setVgrow(ocrExplorerTable, Priority.ALWAYS);
+        return view;
     }
 
     private HBox traceExportBar() {
@@ -2125,6 +2228,7 @@ public final class ConfiguratorApplication extends Application {
             renderSelectedConditionRegionOverlay();
             renderSelectedAnchorOverlay();
             renderSelectedFieldOverlay();
+            renderSelectedOcrExplorerOverlay();
         }
     }
 
@@ -2239,6 +2343,153 @@ public final class ConfiguratorApplication extends Application {
         }
     }
 
+    private void refreshOcrExplorer() {
+        if (ocrExplorerTable.getColumns().isEmpty()) {
+            return;
+        }
+        var currentSelection = selectedOcrExplorerRow == null ? null : selectedOcrExplorerRow.id();
+        var rows = ocrExplorerRows();
+        ocrExplorerTable.getItems().setAll(rows);
+        selectedOcrExplorerRow = null;
+        if (currentSelection != null) {
+            for (var row : rows) {
+                if (currentSelection.equals(row.id())) {
+                    ocrExplorerTable.getSelectionModel().select(row);
+                    selectedOcrExplorerRow = row;
+                    break;
+                }
+            }
+        }
+    }
+
+    private List<OcrExplorerRow> ocrExplorerRows() {
+        var ocr = viewModel.session().ocrCache().get(new PageNumber(viewModel.session().currentPage()));
+        if (ocr == null) {
+            return List.of();
+        }
+        var level = ocrExplorerLevel.getSelectionModel().getSelectedItem();
+        var filter = blankToNull(ocrExplorerFilter.getText());
+        var normalizedFilter = filter == null ? null : filter.toLowerCase(java.util.Locale.ROOT);
+        var rows = new ArrayList<OcrExplorerRow>();
+        var page = viewModel.session().currentPage();
+        if ("Areas".equals(level)) {
+            for (int i = 0; i < ocr.areas().size(); i++) {
+                var area = ocr.areas().get(i);
+                rows.add(new OcrExplorerRow("area-" + i, "Area", areaText(area), "", String.valueOf(page), boundsText(area.boundingBox().region()), area.boundingBox().region()));
+            }
+        } else if ("Paragraphs".equals(level)) {
+            var paragraphs = ocr.paragraphs();
+            for (int i = 0; i < paragraphs.size(); i++) {
+                var paragraph = paragraphs.get(i);
+                rows.add(new OcrExplorerRow("paragraph-" + i, "Paragraph", paragraphText(paragraph), "", String.valueOf(page), boundsText(paragraph.boundingBox().region()), paragraph.boundingBox().region()));
+            }
+        } else if ("Lines".equals(level)) {
+            var lines = ocr.lines();
+            for (int i = 0; i < lines.size(); i++) {
+                var line = lines.get(i);
+                rows.add(new OcrExplorerRow("line-" + i, "Line", lineText(line), "", String.valueOf(page), boundsText(line.boundingBox().region()), line.boundingBox().region()));
+            }
+        } else {
+            var words = ocr.words();
+            for (int i = 0; i < words.size(); i++) {
+                var word = words.get(i);
+                rows.add(new OcrExplorerRow("word-" + i, "Word", word.text(), String.valueOf(word.confidence().value()),
+                    String.valueOf(page), boundsText(word.boundingBox().region()), word.boundingBox().region()));
+            }
+        }
+        if (normalizedFilter == null) {
+            return rows;
+        }
+        return rows.stream()
+            .filter(row -> row.text().toLowerCase(java.util.Locale.ROOT).contains(normalizedFilter))
+            .toList();
+    }
+
+    private String areaText(OcrArea area) {
+        return area.paragraphs().stream()
+            .map(this::paragraphText)
+            .filter(text -> !text.isBlank())
+            .collect(java.util.stream.Collectors.joining(System.lineSeparator()));
+    }
+
+    private String paragraphText(OcrParagraph paragraph) {
+        return paragraph.lines().stream()
+            .map(this::lineText)
+            .filter(text -> !text.isBlank())
+            .collect(java.util.stream.Collectors.joining(System.lineSeparator()));
+    }
+
+    private String lineText(OcrLine line) {
+        return line.words().stream()
+            .map(OcrWord::text)
+            .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    private String boundsText(pl.sk.ocr.domain.geometry.Region region) {
+        return "x=%d, y=%d, w=%d, h=%d".formatted(Math.round(region.x()), Math.round(region.y()),
+            Math.round(region.width()), Math.round(region.height()));
+    }
+
+    private void useSelectedOcrAsCondition() {
+        var row = selectedOcrExplorerRow;
+        if (row == null || viewModel.draft() == null) {
+            status.setText("Select an OCR element first");
+            return;
+        }
+        var groupIndex = identificationGroups().isEmpty() ? 0 : 0;
+        if (identificationGroups().isEmpty()) {
+            viewModel.addIdentificationGroup(new ConditionGroupDto(List.of()));
+        }
+        var conditionIndex = conditions(groupIndex).size();
+        viewModel.addCondition(groupIndex, new ConditionDto("TEXT", viewModel.session().currentPage(), row.text(),
+            new ExtensionRefDto("contains", Map.of("caseSensitive", false)), null, toDtoRegion(row.region())));
+        pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + conditionIndex;
+        layerDiagnostics = true;
+        refreshAll();
+        renderOcrOverlay();
+    }
+
+    private void useSelectedOcrAsAnchor() {
+        var row = selectedOcrExplorerRow;
+        if (row == null || viewModel.draft() == null) {
+            status.setText("Select an OCR element first");
+            return;
+        }
+        var index = anchors().size();
+        var bounds = toDtoRegion(row.region());
+        viewModel.addAnchor(new AnchorDto(uniqueAnchorId(index + 1), viewModel.session().currentPage(),
+            new ExtensionRefDto("text", Map.of("text", row.text())), true, new ReferenceFeatureDto(bounds), bounds));
+        pendingTreeSelectionId = "anchor." + index;
+        layerAnchors = true;
+        refreshAll();
+        renderOcrOverlay();
+    }
+
+    private void copySelectedOcrText() {
+        var row = selectedOcrExplorerRow;
+        if (row == null) {
+            status.setText("Select an OCR element first");
+            return;
+        }
+        var content = new ClipboardContent();
+        content.putString(row.text());
+        Clipboard.getSystemClipboard().setContent(content);
+        status.setText("OCR text copied");
+    }
+
+    private void renderSelectedOcrExplorerOverlay() {
+        var row = selectedOcrExplorerRow;
+        if (row == null || Integer.parseInt(row.page()) != viewModel.session().currentPage()) {
+            return;
+        }
+        var rectangle = domainRegionRectangle(row.region(), Color.color(0.96, 0.82, 0.20, 0.18), "#ca8a04", 2.0);
+        viewer.addOverlay(rectangle);
+    }
+
+    private RegionDto toDtoRegion(pl.sk.ocr.domain.geometry.Region region) {
+        return new RegionDto(Math.round(region.x()), Math.round(region.y()), Math.round(region.width()), Math.round(region.height()));
+    }
+
     private void renderSelectedConditionRegionOverlay() {
         var selected = selectedTreeNode();
         if (selected == null || selected.type() != TreeNodeType.CONDITION || !identificationPropertiesPanel.hasValidConditionSearchRegion()) {
@@ -2313,6 +2564,7 @@ public final class ConfiguratorApplication extends Application {
         status.setText(viewModel.status());
         refreshPageStatus();
         refreshValidationTable();
+        refreshOcrExplorer();
         if (profilePreprocessingPanel != null) {
             profilePreprocessingPanel.refresh();
         }
@@ -2653,6 +2905,17 @@ public final class ConfiguratorApplication extends Application {
     private ExtensionRefDto extensionRef(String id) {
         var normalized = blankToNull(id);
         return normalized == null ? null : new ExtensionRefDto(normalized, Map.of());
+    }
+
+    private String uniqueAnchorId(int seed) {
+        var existing = anchors().stream().map(pl.sk.ocr.config.dto.AnchorDto::id).collect(java.util.stream.Collectors.toSet());
+        var candidate = "anchor-" + seed;
+        var suffix = seed;
+        while (existing.contains(candidate)) {
+            suffix++;
+            candidate = "anchor-" + suffix;
+        }
+        return candidate;
     }
 
     private java.util.List<String> parseStringList(String value) {
@@ -2999,6 +3262,29 @@ public final class ConfiguratorApplication extends Application {
 
         public String getMessage() {
             return message;
+        }
+    }
+
+    private record OcrExplorerRow(String id, String level, String text, String confidence, String page, String bounds,
+                                  pl.sk.ocr.domain.geometry.Region region) {
+        public String getLevel() {
+            return level;
+        }
+
+        public String getText() {
+            return text;
+        }
+
+        public String getConfidence() {
+            return confidence;
+        }
+
+        public String getPage() {
+            return page;
+        }
+
+        public String getBounds() {
+            return bounds;
         }
     }
 
