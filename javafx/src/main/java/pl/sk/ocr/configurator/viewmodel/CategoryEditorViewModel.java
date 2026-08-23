@@ -6,6 +6,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import pl.sk.ocr.config.dto.*;
 import pl.sk.ocr.config.runtime.OcrSettings;
+import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.FieldPreviewResult;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
@@ -231,8 +232,12 @@ public final class CategoryEditorViewModel {
     }
 
     public CompletionStage<Void> openReferenceDocument(Path path) {
+        return openReferenceDocument(path, RenderOptions.defaults());
+    }
+
+    public CompletionStage<Void> openReferenceDocument(Path path, RenderOptions options) {
         status.set("Opening document...");
-        return backgroundExecutor.submit(() -> openDocument.open(path)).thenAccept(rendered -> {
+        return backgroundExecutor.submit(() -> openDocument.open(path, options)).thenAccept(rendered -> {
             session.referenceDocument(path);
             session.pageCache().clear();
             session.pageCache().putAll(rendered.pages());
@@ -242,6 +247,10 @@ public final class CategoryEditorViewModel {
     }
 
     public CompletionStage<OcrText> runCurrentPageOcr() {
+        return runCurrentPageOcr(OcrSettings.defaults());
+    }
+
+    public CompletionStage<OcrText> runCurrentPageOcr(OcrSettings settings) {
         var runId = previewRunGuard.next();
         var pageNumber = new PageNumber(session.currentPage());
         var image = session.pageCache().get(pageNumber);
@@ -249,7 +258,7 @@ public final class CategoryEditorViewModel {
             throw new IllegalStateException("No rendered page is available");
         }
         status.set("Running OCR...");
-        return backgroundExecutor.submit(() -> runOcr.run(image, OcrSettings.defaults())).thenApply(result -> {
+        return backgroundExecutor.submit(() -> runOcr.run(image, settings == null ? OcrSettings.defaults() : settings)).thenApply(result -> {
             if (previewRunGuard.isLatest(runId)) {
                 session.ocrCache().put(pageNumber, result);
                 status.set("OCR ready: " + result.words().size() + " words");
@@ -289,6 +298,10 @@ public final class CategoryEditorViewModel {
     }
 
     public CompletionStage<DocumentResult> testCategory() {
+        return testCategory(OcrSettings.defaults());
+    }
+
+    public CompletionStage<DocumentResult> testCategory(OcrSettings settings) {
         var draft = requireDraft();
         if (testCategory == null) {
             throw new IllegalStateException("Category test is not configured");
@@ -301,7 +314,8 @@ public final class CategoryEditorViewModel {
         }
         var runId = previewRunGuard.next();
         status.set("Running category test...");
-        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache(), session.traceImageStore())).thenApply(result -> {
+        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache(),
+            session.traceImageStore(), settings == null ? OcrSettings.defaults() : settings)).thenApply(result -> {
             if (previewRunGuard.isLatest(runId)) {
                 session.latestDocumentResult(result);
                 session.latestTrace(result.trace());

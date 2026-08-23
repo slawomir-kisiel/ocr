@@ -15,4 +15,8 @@ public final class OpenReferenceDocumentUseCase {
     public RenderedDocument open(Path path) {
         return documentReader.read(path, RenderOptions.defaults());
     }
+
+    public RenderedDocument open(Path path, RenderOptions options) {
+        return documentReader.read(path, options == null ? RenderOptions.defaults() : options);
+    }
 }

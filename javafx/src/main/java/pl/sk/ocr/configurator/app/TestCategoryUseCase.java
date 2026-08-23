@@ -47,6 +47,11 @@ public final class TestCategoryUseCase {
     }
 
     public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages, TraceImageStore traceImageStore) {
+        return test(category, documentPath, pages, traceImageStore, OcrSettings.defaults());
+    }
+
+    public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages,
+                               TraceImageStore traceImageStore, OcrSettings defaultOcrSettings) {
         if (category == null) {
             throw new IllegalArgumentException("category is required");
         }
@@ -60,7 +65,7 @@ public final class TestCategoryUseCase {
             throw new IllegalArgumentException("trace image store is required");
         }
         traceImageStore.clear();
-        var runtime = runtime(category);
+        var runtime = runtime(category, defaultOcrSettings == null ? OcrSettings.defaults() : defaultOcrSettings);
         var processor = new DocumentProcessor(inMemoryReader(pages), ocrEngine, extensionRegistry);
         var result = processor.process(documentPath, runtime);
         var categorizationDiagnostics = categorizationDiagnostics(pages, runtime.profile().ocr(), traceImageStore);
@@ -113,7 +118,7 @@ public final class TestCategoryUseCase {
         return (source, options) -> rendered;
     }
 
-    private RuntimeConfiguration runtime(CategoryDto category) {
+    private RuntimeConfiguration runtime(CategoryDto category, OcrSettings ocrSettings) {
         var runtimeCategory = categoryMapper.map(category);
         var categoryId = new CategoryId(category.id());
         var base = Path.of(".");
@@ -125,7 +130,7 @@ public final class TestCategoryUseCase {
             List.of(categoryId),
             new DirectoriesConfiguration(base, base, base),
             new ProcessingConfiguration(1, 1),
-            OcrSettings.defaults(),
+            ocrSettings,
             TraceMode.FULL,
             new CsvOutputConfiguration(base.resolve("preview.csv"), StandardCharsets.UTF_8, ";", "\"", true, true)
         );

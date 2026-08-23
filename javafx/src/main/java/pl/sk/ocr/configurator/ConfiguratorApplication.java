@@ -43,6 +43,8 @@ import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
 import pl.sk.ocr.configurator.app.DiagnosticExportUseCase;
+import pl.sk.ocr.configurator.app.ApplicationPreferences;
+import pl.sk.ocr.configurator.app.ApplicationPreferences.DirectoryKey;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
@@ -55,6 +57,8 @@ import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.SelectionType;
 import pl.sk.ocr.configurator.result.CategoryTestResultPanel;
 import pl.sk.ocr.configurator.result.FieldResultPanel;
+import pl.sk.ocr.configurator.settings.LoadedExtensionsDialog;
+import pl.sk.ocr.configurator.settings.SettingsDialog;
 import pl.sk.ocr.configurator.trace.TraceViewerPanel;
 import pl.sk.ocr.configurator.validation.DraftValidationProblem;
 import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
@@ -101,6 +105,7 @@ public final class ConfiguratorApplication extends Application {
     private TraceViewerPanel traceViewerPanel;
     private FieldResultPanel fieldResultPanel;
     private CategoryTestResultPanel categoryTestResultPanel;
+    private final ApplicationPreferences preferences = new ApplicationPreferences();
 
     public static void main(String[] args) {
         launch(args);
@@ -155,7 +160,7 @@ public final class ConfiguratorApplication extends Application {
 
     private BorderPane layout(Stage stage) {
         var root = new BorderPane();
-        root.setTop(toolbar(stage));
+        root.setTop(new VBox(menuBar(stage), toolbar(stage)));
         root.setCenter(center());
         root.setBottom(statusBar());
         refreshTree();
@@ -176,8 +181,43 @@ public final class ConfiguratorApplication extends Application {
         var previewField = button("Preview Field", this::previewField);
         var testCategory = button("Test Category", this::testCategory);
         var validate = button("Validate", this::validate);
+        var settings = button("Settings", this::showSettings);
+        var extensions = button("Extensions", this::showLoadedExtensions);
         return new ToolBar(newCategory, openConfig, save, saveAs, new Separator(), openDocument,
-            new Separator(), runOcr, previewField, testCategory, validate);
+            new Separator(), runOcr, previewField, testCategory, validate, new Separator(), settings, extensions);
+    }
+
+    private MenuBar menuBar(Stage stage) {
+        var file = new Menu("File");
+        file.getItems().addAll(
+            menuItem("New Category", () -> {
+                viewModel.newCategory("new-category", "New Category");
+                refreshAll();
+            }),
+            menuItem("Open Configuration", () -> chooseCategory(stage)),
+            menuItem("Save", () -> saveCategory(stage, false)),
+            menuItem("Save As", () -> saveCategory(stage, true)),
+            new SeparatorMenuItem(),
+            menuItem("Open Document", () -> chooseDocument(stage))
+        );
+        var run = new Menu("Run");
+        run.getItems().addAll(
+            menuItem("Run OCR", this::runOcr),
+            menuItem("Preview Field", this::previewField),
+            menuItem("Test Category", this::testCategory),
+            menuItem("Validate Configuration", this::validate)
+        );
+        var tools = new Menu("Tools");
+        tools.getItems().add(menuItem("Settings", this::showSettings));
+        var help = new Menu("Help");
+        help.getItems().addAll(menuItem("Loaded Extensions", this::showLoadedExtensions), menuItem("About", this::showAbout));
+        return new MenuBar(file, new Menu("View"), run, tools, help);
+    }
+
+    private MenuItem menuItem(String text, Runnable action) {
+        var item = new MenuItem(text);
+        item.setOnAction(event -> action.run());
+        return item;
     }
 
     private void configureAccelerators(Scene scene, Stage stage) {
@@ -427,8 +467,10 @@ public final class ConfiguratorApplication extends Application {
     private void chooseCategory(Stage stage) {
         var chooser = new FileChooser();
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_CONFIGURATION);
         var file = chooser.showOpenDialog(stage);
         if (file != null) {
+            preferences.rememberFile(DirectoryKey.OPEN_CONFIGURATION, file.toPath());
             runUiSafe(() -> {
                 viewModel.loadCategory(file.toPath());
                 refreshAll();
@@ -442,11 +484,13 @@ public final class ConfiguratorApplication extends Application {
         if (saveAs || path == null) {
             var chooser = new FileChooser();
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Category JSON", "*.json"));
+            configureInitialDirectory(chooser, DirectoryKey.SAVE_CONFIGURATION);
             var file = chooser.showSaveDialog(stage);
             path = file == null ? null : file.toPath();
         }
         if (path != null) {
             Path savePath = path;
+            preferences.rememberFile(DirectoryKey.SAVE_CONFIGURATION, savePath);
             runUiSafe(() -> {
                 viewModel.saveCategory(savePath);
                 refreshAll();
@@ -467,10 +511,12 @@ public final class ConfiguratorApplication extends Application {
             new FileChooser.ExtensionFilter("Documents", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff"),
             new FileChooser.ExtensionFilter("All files", "*.*")
         );
+        configureInitialDirectory(chooser, DirectoryKey.OPEN_DOCUMENT);
         var file = chooser.showOpenDialog(stage);
         if (file != null) {
+            preferences.rememberFile(DirectoryKey.OPEN_DOCUMENT, file.toPath());
             status.setText("Opening document...");
-            viewModel.openReferenceDocument(file.toPath())
+            viewModel.openReferenceDocument(file.toPath(), preferences.renderOptions())
                 .whenComplete((ignored, error) -> Platform.runLater(() -> {
                     if (error != null) {
                         showError(error);
@@ -484,7 +530,7 @@ public final class ConfiguratorApplication extends Application {
 
     private void runOcr() {
         status.setText("Running OCR...");
-        viewModel.runCurrentPageOcr()
+        viewModel.runCurrentPageOcr(preferences.ocrSettings())
             .whenComplete((ocr, error) -> Platform.runLater(() -> {
                 if (error != null) {
                     showError(error);
@@ -518,7 +564,7 @@ public final class ConfiguratorApplication extends Application {
     private void testCategory() {
         commitCurrentDetailsForm();
         status.setText("Running category test...");
-        viewModel.testCategory()
+        viewModel.testCategory(preferences.ocrSettings())
             .whenComplete((result, error) -> Platform.runLater(() -> {
                 if (error != null) {
                     showError(error);
@@ -571,10 +617,12 @@ public final class ConfiguratorApplication extends Application {
         var chooser = new FileChooser();
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP bundle", "*.zip"));
         chooser.setInitialFileName("diagnostic-bundle.zip");
+        configureInitialDirectory(chooser, DirectoryKey.EXPORT_DOCUMENT);
         var file = chooser.showSaveDialog(stage);
         if (file == null) {
             return;
         }
+        preferences.rememberFile(DirectoryKey.EXPORT_DOCUMENT, file.toPath());
         status.setText("Exporting diagnostic bundle...");
         services.backgroundExecutor().submit(() -> diagnosticExport.exportBundle(file.toPath(),
                 viewModel.session().latestTrace(), viewModel.session().traceImageStore()))
@@ -584,8 +632,46 @@ public final class ConfiguratorApplication extends Application {
     private Path chooseExportDirectory(Stage stage) {
         var chooser = new DirectoryChooser();
         chooser.setTitle("Select diagnostics export folder");
+        preferences.directory(DirectoryKey.EXPORT_DOCUMENT).map(Path::toFile).ifPresent(chooser::setInitialDirectory);
         var directory = chooser.showDialog(stage);
+        if (directory != null) {
+            preferences.rememberFile(DirectoryKey.EXPORT_DOCUMENT, directory.toPath());
+        }
         return directory == null ? null : directory.toPath();
+    }
+
+    private void configureInitialDirectory(FileChooser chooser, DirectoryKey key) {
+        preferences.directory(key).map(Path::toFile).ifPresent(chooser::setInitialDirectory);
+    }
+
+    private void showSettings() {
+        var before = preferences.settings();
+        new SettingsDialog().show(before).ifPresent(settings -> {
+            var ocrChanged = !java.util.Objects.equals(before.tesseractDatapath(), settings.tesseractDatapath())
+                || !java.util.Objects.equals(before.defaultOcrLanguage(), settings.defaultOcrLanguage());
+            preferences.save(settings);
+            if (ocrChanged) {
+                viewModel.session().ocrCache().clear();
+                viewModel.session().latestFieldResult(null);
+                viewModel.session().latestDocumentResult(null);
+                viewModel.session().latestTrace(pl.sk.ocr.domain.trace.ProcessingTrace.off());
+                viewModel.session().traceImageStore().clear();
+                refreshAll();
+            }
+            status.setText("Settings saved");
+        });
+    }
+
+    private void showLoadedExtensions() {
+        new LoadedExtensionsDialog().show(services.extensionRegistry());
+    }
+
+    private void showAbout() {
+        var alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("About");
+        alert.setHeaderText("OCR Configurator");
+        alert.setContentText("OCR Configurator 0.1.0-SNAPSHOT");
+        alert.showAndWait();
     }
 
     private void finishExport(DiagnosticExportUseCase.ExportResult result, Throwable error) {
