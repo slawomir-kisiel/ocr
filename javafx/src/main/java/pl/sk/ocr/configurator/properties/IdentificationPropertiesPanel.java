@@ -50,7 +50,10 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final Spinner<Integer> searchRegionWidth = regionSpinner();
     private final Spinner<Integer> searchRegionHeight = regionSpinner();
     private final Button drawSearchRegion = new Button();
+    private final Button symmetricResize = new Button();
     private boolean refreshing;
+    private boolean symmetricResizeEnabled;
+    private boolean adjustingRegionSpinners;
 
     public IdentificationPropertiesPanel(CategoryEditorViewModel viewModel, Supplier<Selection> selection,
                                          Label detailsInfo, Runnable afterChange, Runnable refreshAll,
@@ -174,6 +177,11 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         drawSearchRegion.setMinSize(36, 32);
         drawSearchRegion.setPrefSize(36, 32);
         drawSearchRegion.setMaxSize(36, 32);
+        symmetricResize.setGraphic(iconFactory.apply("lock-open.svg"));
+        symmetricResize.setTooltip(new Tooltip("Enable symmetric region resize."));
+        symmetricResize.setMinSize(36, 32);
+        symmetricResize.setPrefSize(36, 32);
+        symmetricResize.setMaxSize(36, 32);
         groupsCount.setStyle("-fx-text-fill: #111827;");
         addGroup.setOnAction(event -> {
             var newIndex = groups().size();
@@ -200,11 +208,76 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addDraftListener(conditionDetectorId, this::applySelectedCondition);
         pickMatcher.setOnAction(event -> chooseExtension(ExtensionType.MATCHER, conditionMatcherId));
         pickDetector.setOnAction(event -> chooseExtension(ExtensionType.DETECTOR, conditionDetectorId));
-        addSpinnerListener(searchRegionX, this::applySelectedCondition);
-        addSpinnerListener(searchRegionY, this::applySelectedCondition);
-        addSpinnerListener(searchRegionWidth, this::applySelectedCondition);
-        addSpinnerListener(searchRegionHeight, this::applySelectedCondition);
+        addRegionSpinnerListeners();
         drawSearchRegion.setOnAction(event -> activateConditionSearchRegionDrawing.run());
+        symmetricResize.setOnAction(event -> toggleSymmetricResize());
+    }
+
+    private void addRegionSpinnerListeners() {
+        searchRegionX.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.X, old, value));
+        searchRegionY.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.Y, old, value));
+        searchRegionWidth.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.WIDTH, old, value));
+        searchRegionHeight.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.HEIGHT, old, value));
+        searchRegionX.getEditor().textProperty().addListener((obs, old, value) -> applySelectedCondition());
+        searchRegionY.getEditor().textProperty().addListener((obs, old, value) -> applySelectedCondition());
+        searchRegionWidth.getEditor().textProperty().addListener((obs, old, value) -> applySelectedCondition());
+        searchRegionHeight.getEditor().textProperty().addListener((obs, old, value) -> applySelectedCondition());
+    }
+
+    private void applyRegionSpinnerChange(RegionPart part, Integer oldValue, Integer newValue) {
+        if (refreshing || adjustingRegionSpinners) {
+            applySelectedCondition();
+            return;
+        }
+        if (!symmetricResizeEnabled || oldValue == null || newValue == null || oldValue.equals(newValue) || !hasCompleteConditionSearchRegion()) {
+            applySelectedCondition();
+            return;
+        }
+        var delta = newValue - oldValue;
+        adjustingRegionSpinners = true;
+        try {
+            switch (part) {
+                case X -> setRegionSpinnerValue(searchRegionWidth, Math.max(1, parseInteger(searchRegionWidth.getEditor().getText()) - delta * 2));
+                case Y -> setRegionSpinnerValue(searchRegionHeight, Math.max(1, parseInteger(searchRegionHeight.getEditor().getText()) - delta * 2));
+                case WIDTH -> {
+                    var widthDelta = normalizeSizeDelta(searchRegionWidth, oldValue, newValue);
+                    setRegionSpinnerValue(searchRegionX, parseInteger(searchRegionX.getEditor().getText()) - widthDelta / 2);
+                }
+                case HEIGHT -> {
+                    var heightDelta = normalizeSizeDelta(searchRegionHeight, oldValue, newValue);
+                    setRegionSpinnerValue(searchRegionY, parseInteger(searchRegionY.getEditor().getText()) - heightDelta / 2);
+                }
+            }
+        } finally {
+            adjustingRegionSpinners = false;
+        }
+        applySelectedCondition();
+    }
+
+    private int normalizeSizeDelta(Spinner<Integer> spinner, int oldValue, int newValue) {
+        var delta = newValue - oldValue;
+        if (Math.abs(delta) == 1) {
+            var normalized = delta > 0 ? 2 : -2;
+            setRegionSpinnerValue(spinner, oldValue + normalized);
+            return normalized;
+        }
+        if (Math.abs(delta) % 2 != 0) {
+            var normalized = delta > 0 ? delta + 1 : delta - 1;
+            setRegionSpinnerValue(spinner, oldValue + normalized);
+            return normalized;
+        }
+        return delta;
+    }
+
+    private void setRegionSpinnerValue(Spinner<Integer> spinner, int value) {
+        spinner.getValueFactory().setValue(value);
+        spinner.getEditor().setText(String.valueOf(value));
+    }
+
+    private void toggleSymmetricResize() {
+        symmetricResizeEnabled = !symmetricResizeEnabled;
+        symmetricResize.setGraphic(iconFactory.apply(symmetricResizeEnabled ? "lock.svg" : "lock-open.svg"));
+        symmetricResize.setTooltip(new Tooltip(symmetricResizeEnabled ? "Disable symmetric region resize." : "Enable symmetric region resize."));
     }
 
     private void groupControls(VBox section, int groupIndex) {
@@ -267,14 +340,11 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         }
 
         var searchRegionContent = new VBox(8);
-        addFormRow(searchRegionContent, "X", searchRegionX);
-        addFormRow(searchRegionContent, "Y", searchRegionY);
-        addFormRow(searchRegionContent, "Width", searchRegionWidth);
-        addFormRow(searchRegionContent, "Height", searchRegionHeight);
-        section.getChildren().add(titledPane("Search Region", searchRegionContent));
-
         detachFromParent(drawSearchRegion);
-        section.getChildren().add(drawSearchRegion);
+        detachFromParent(symmetricResize);
+        var regionActions = new VBox(6, drawSearchRegion, symmetricResize);
+        searchRegionContent.getChildren().add(regionRowsWithActions(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight, regionActions));
+        section.getChildren().add(titledPane("Search Region", searchRegionContent));
         var addCondition = button("Add Condition", () -> {
             var newIndex = conditions(groupIndex).size();
             viewModel.addCondition(groupIndex, new ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
@@ -433,6 +503,13 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         ROOT,
         GROUP,
         CONDITION
+    }
+
+    private enum RegionPart {
+        X,
+        Y,
+        WIDTH,
+        HEIGHT
     }
 
     public record Selection(SelectionType type, int groupIndex, int conditionIndex) {

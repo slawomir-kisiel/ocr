@@ -4,9 +4,12 @@ import javafx.geometry.Insets;
 import javafx.scene.control.Control;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
@@ -64,6 +67,43 @@ public final class FormControls {
         VBox.setVgrow(control, Priority.NEVER);
     }
 
+    public static void addRegionRows(VBox form, Control x, Control y, Control width, Control height) {
+        form.getChildren().add(regionRows(x, y, width, height));
+    }
+
+    public static HBox regionRowsWithActions(Control x, Control y, Control width, Control height, javafx.scene.Node actions) {
+        detachFromParent(actions);
+        var box = new HBox(8, regionRows(x, y, width, height), actions);
+        HBox.setHgrow(box.getChildren().get(0), Priority.ALWAYS);
+        return box;
+    }
+
+    private static GridPane regionRows(Control x, Control y, Control width, Control height) {
+        var grid = new GridPane();
+        grid.setHgap(8);
+        grid.setVgap(6);
+        addRegionCell(grid, "X", x, 0, 0);
+        addRegionCell(grid, "Y", y, 1, 0);
+        addRegionCell(grid, "W", width, 0, 1);
+        addRegionCell(grid, "H", height, 1, 1);
+        grid.setMaxWidth(Double.MAX_VALUE);
+        return grid;
+    }
+
+    private static void addRegionCell(GridPane grid, String labelText, Control control, int column, int row) {
+        detachFromParent(control);
+        var field = new VBox(2);
+        var label = new Label(labelText);
+        label.setLabelFor(control);
+        label.setTooltip(control.getTooltip());
+        label.setStyle(TEXT_COLOR_STYLE);
+        control.setMaxWidth(Double.MAX_VALUE);
+        field.getChildren().addAll(label, control);
+        field.setMaxWidth(Double.MAX_VALUE);
+        grid.add(field, column, row);
+        GridPane.setHgrow(field, Priority.ALWAYS);
+    }
+
     public static void setVisibleManaged(javafx.scene.Node node, boolean visible) {
         node.setVisible(visible);
         node.setManaged(visible);
@@ -89,7 +129,23 @@ public final class FormControls {
     }
 
     public static Spinner<Integer> regionSpinner() {
-        var spinner = new Spinner<Integer>(Integer.MIN_VALUE, Integer.MAX_VALUE, 0);
+        var valueFactory = new SpinnerValueFactory.IntegerSpinnerValueFactory(Integer.MIN_VALUE, Integer.MAX_VALUE, 0) {
+            @Override
+            public void decrement(int steps) {
+                if (getValue() != null) {
+                    super.decrement(steps);
+                }
+            }
+
+            @Override
+            public void increment(int steps) {
+                if (getValue() != null) {
+                    super.increment(steps);
+                }
+            }
+        };
+        var spinner = new Spinner<Integer>();
+        spinner.setValueFactory(valueFactory);
         spinner.setEditable(true);
         spinner.setPrefWidth(110);
         return spinner;
@@ -99,6 +155,8 @@ public final class FormControls {
         spinner.getEditor().setText(value);
         if (value != null && !value.isBlank()) {
             spinner.getValueFactory().setValue(Integer.parseInt(value.trim()));
+        } else {
+            spinner.getValueFactory().setValue(null);
         }
     }
 }

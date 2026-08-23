@@ -4,6 +4,7 @@ import static pl.sk.ocr.configurator.ui.FormControls.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
@@ -56,7 +57,12 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final Button drawSearchRegion = new Button();
     private final Button clearSearchRegion = new Button();
     private final Button drawReferenceBounds = new Button();
+    private final Button symmetricSearchRegionResize = new Button();
+    private final Button symmetricReferenceBoundsResize = new Button();
     private boolean refreshing;
+    private boolean adjustingRegionSpinners;
+    private boolean symmetricSearchRegionResizeEnabled;
+    private boolean symmetricReferenceBoundsResizeEnabled;
 
     public AnchorPropertiesPanel(CategoryEditorViewModel viewModel, Supplier<List<AnchorDto>> anchors,
                                  IntSupplier selectedIndex, Label detailsInfo, Runnable afterChange,
@@ -171,23 +177,29 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         configureDrawButton(drawSearchRegion, "Draw anchor search region on document preview.");
         configureIconButton(clearSearchRegion, "eraser.svg", "Clear anchor search region. Empty values mean searching the whole page.");
         configureDrawButton(drawReferenceBounds, "Draw anchor reference feature bounds on document preview.");
+        configureSymmetricResizeButton(symmetricSearchRegionResize);
+        configureSymmetricResizeButton(symmetricReferenceBoundsResize);
         addAnchor.setOnAction(event -> addAnchor());
         addDraftListener(anchorId, this::applySelectedAnchor);
         addDraftListener(anchorPage, this::applySelectedAnchor);
         addDraftListener(anchorDetectorId, this::applySelectedAnchor);
         pickDetector.setOnAction(event -> chooseDetector());
         anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
-        addSpinnerListener(searchRegionX, this::applySelectedAnchor);
-        addSpinnerListener(searchRegionY, this::applySelectedAnchor);
-        addSpinnerListener(searchRegionWidth, this::applySelectedAnchor);
-        addSpinnerListener(searchRegionHeight, this::applySelectedAnchor);
-        addSpinnerListener(referenceBoundsX, this::applySelectedAnchor);
-        addSpinnerListener(referenceBoundsY, this::applySelectedAnchor);
-        addSpinnerListener(referenceBoundsWidth, this::applySelectedAnchor);
-        addSpinnerListener(referenceBoundsHeight, this::applySelectedAnchor);
+        addRegionSpinnerListeners(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight,
+            () -> symmetricSearchRegionResizeEnabled);
+        addRegionSpinnerListeners(referenceBoundsX, referenceBoundsY, referenceBoundsWidth, referenceBoundsHeight,
+            () -> symmetricReferenceBoundsResizeEnabled);
         drawSearchRegion.setOnAction(event -> activateSearchRegionDrawing.run());
         clearSearchRegion.setOnAction(event -> clearSearchRegion());
         drawReferenceBounds.setOnAction(event -> activateReferenceBoundsDrawing.run());
+        symmetricSearchRegionResize.setOnAction(event -> {
+            symmetricSearchRegionResizeEnabled = !symmetricSearchRegionResizeEnabled;
+            updateSymmetricResizeButton(symmetricSearchRegionResize, symmetricSearchRegionResizeEnabled);
+        });
+        symmetricReferenceBoundsResize.setOnAction(event -> {
+            symmetricReferenceBoundsResizeEnabled = !symmetricReferenceBoundsResizeEnabled;
+            updateSymmetricResizeButton(symmetricReferenceBoundsResize, symmetricReferenceBoundsResizeEnabled);
+        });
     }
 
     private void configureDrawButton(Button button, String tooltip) {
@@ -200,6 +212,18 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         button.setMinSize(36, 32);
         button.setPrefSize(36, 32);
         button.setMaxSize(36, 32);
+    }
+
+    private void configureSymmetricResizeButton(Button button) {
+        updateSymmetricResizeButton(button, false);
+        button.setMinSize(36, 32);
+        button.setPrefSize(36, 32);
+        button.setMaxSize(36, 32);
+    }
+
+    private void updateSymmetricResizeButton(Button button, boolean enabled) {
+        button.setGraphic(iconFactory.apply(enabled ? "lock.svg" : "lock-open.svg"));
+        button.setTooltip(new Tooltip(enabled ? "Disable symmetric region resize." : "Enable symmetric region resize."));
     }
 
     private void anchorControls(VBox section, int anchorIndex) {
@@ -215,22 +239,18 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         }
 
         var searchRegionContent = new VBox(8);
-        addFormRow(searchRegionContent, "X", searchRegionX);
-        addFormRow(searchRegionContent, "Y", searchRegionY);
-        addFormRow(searchRegionContent, "Width", searchRegionWidth);
-        addFormRow(searchRegionContent, "Height", searchRegionHeight);
         detachFromParent(drawSearchRegion);
         detachFromParent(clearSearchRegion);
-        searchRegionContent.getChildren().add(new HBox(6, drawSearchRegion, clearSearchRegion));
+        detachFromParent(symmetricSearchRegionResize);
+        searchRegionContent.getChildren().add(regionRowsWithActions(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight,
+            new VBox(6, drawSearchRegion, symmetricSearchRegionResize, clearSearchRegion)));
         section.getChildren().add(titledPane("Search Region", searchRegionContent));
 
         var referenceContent = new VBox(8);
-        addFormRow(referenceContent, "X", referenceBoundsX);
-        addFormRow(referenceContent, "Y", referenceBoundsY);
-        addFormRow(referenceContent, "Width", referenceBoundsWidth);
-        addFormRow(referenceContent, "Height", referenceBoundsHeight);
         detachFromParent(drawReferenceBounds);
-        referenceContent.getChildren().add(drawReferenceBounds);
+        detachFromParent(symmetricReferenceBoundsResize);
+        referenceContent.getChildren().add(regionRowsWithActions(referenceBoundsX, referenceBoundsY, referenceBoundsWidth, referenceBoundsHeight,
+            new VBox(6, drawReferenceBounds, symmetricReferenceBoundsResize)));
         section.getChildren().add(titledPane("Reference Feature", referenceContent));
 
         var add = button("Add Anchor", this::addAnchor);
@@ -273,6 +293,82 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var box = new HBox(6, field, picker);
         HBox.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
         return box;
+    }
+
+    private void addRegionSpinnerListeners(Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width,
+                                           Spinner<Integer> height, BooleanSupplier symmetricResizeEnabled) {
+        x.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.X, old, value, x, y, width, height,
+            symmetricResizeEnabled));
+        y.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.Y, old, value, x, y, width, height,
+            symmetricResizeEnabled));
+        width.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.WIDTH, old, value, x, y, width, height,
+            symmetricResizeEnabled));
+        height.valueProperty().addListener((obs, old, value) -> applyRegionSpinnerChange(RegionPart.HEIGHT, old, value, x, y, width, height,
+            symmetricResizeEnabled));
+        x.getEditor().textProperty().addListener((obs, old, value) -> applySelectedAnchorAfterRegionTextChange());
+        y.getEditor().textProperty().addListener((obs, old, value) -> applySelectedAnchorAfterRegionTextChange());
+        width.getEditor().textProperty().addListener((obs, old, value) -> applySelectedAnchorAfterRegionTextChange());
+        height.getEditor().textProperty().addListener((obs, old, value) -> applySelectedAnchorAfterRegionTextChange());
+    }
+
+    private void applySelectedAnchorAfterRegionTextChange() {
+        if (!adjustingRegionSpinners) {
+            applySelectedAnchor();
+        }
+    }
+
+    private void applyRegionSpinnerChange(RegionPart part, Integer oldValue, Integer newValue,
+                                          Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width,
+                                          Spinner<Integer> height, BooleanSupplier symmetricResizeEnabled) {
+        if (refreshing || adjustingRegionSpinners) {
+            return;
+        }
+        if (!symmetricResizeEnabled.getAsBoolean() || oldValue == null || newValue == null || oldValue.equals(newValue)
+            || !hasCompleteRegion(x, y, width, height)) {
+            applySelectedAnchor();
+            return;
+        }
+        var delta = newValue - oldValue;
+        adjustingRegionSpinners = true;
+        try {
+            switch (part) {
+                case X -> setRegionSpinnerValue(width, Math.max(1, width.getValue() - delta * 2));
+                case Y -> setRegionSpinnerValue(height, Math.max(1, height.getValue() - delta * 2));
+                case WIDTH -> {
+                    var widthDelta = normalizeSizeDelta(width, oldValue, newValue);
+                    setRegionSpinnerValue(x, x.getValue() - widthDelta / 2);
+                }
+                case HEIGHT -> {
+                    var heightDelta = normalizeSizeDelta(height, oldValue, newValue);
+                    setRegionSpinnerValue(y, y.getValue() - heightDelta / 2);
+                }
+            }
+        } finally {
+            adjustingRegionSpinners = false;
+        }
+        applySelectedAnchor();
+    }
+
+    private int normalizeSizeDelta(Spinner<Integer> spinner, int oldValue, int newValue) {
+        var delta = newValue - oldValue;
+        if (delta == 0) {
+            return 0;
+        }
+        var normalized = delta % 2 == 0 ? delta : delta + Integer.signum(delta);
+        setRegionSpinnerValue(spinner, Math.max(1, oldValue + normalized));
+        return spinner.getValue() - oldValue;
+    }
+
+    private void setRegionSpinnerValue(Spinner<Integer> spinner, int value) {
+        spinner.getValueFactory().setValue(value);
+        spinner.getEditor().setText(String.valueOf(value));
+    }
+
+    private boolean hasCompleteRegion(Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width, Spinner<Integer> height) {
+        return blankToNull(x.getEditor().getText()) != null
+            && blankToNull(y.getEditor().getText()) != null
+            && blankToNull(width.getEditor().getText()) != null
+            && blankToNull(height.getEditor().getText()) != null;
     }
 
     private void chooseDetector() {
@@ -406,5 +502,12 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
 
     private String formatRegionNumber(double value) {
         return String.valueOf(Math.round(value));
+    }
+
+    private enum RegionPart {
+        X,
+        Y,
+        WIDTH,
+        HEIGHT
     }
 }
