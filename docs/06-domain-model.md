@@ -1243,6 +1243,7 @@ flowchart LR
 | Typ              | ID robocze |
 | ---------------- | ---------- |
 | Matcher          | `exact` |
+| Matcher          | `contains` |
 | Matcher          | `normalized` |
 | Matcher          | `fuzzy` |
 | Matcher          | `regex` |

@@ -8,6 +8,7 @@ import pl.sk.ocr.domain.identifier.ExtensionId;
 import pl.sk.ocr.extension.api.ExtensionParameterDescriptor;
 import pl.sk.ocr.extension.api.ExtensionParameterType;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionType;
 
 public final class CategoryValidator implements ConfigurationValidator<CategoryDto> {
     private final ExtensionRegistry extensionRegistry;
@@ -45,10 +46,20 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
                 continue;
             }
             for (int j = 0; j < group.conditions().size(); j++) {
-                validateExtension(group.conditions().get(j).matcher(), "$.identification.groups[" + i + "].conditions[" + j + "].matcher", problems);
-                validateExtension(group.conditions().get(j).detector(), "$.identification.groups[" + i + "].conditions[" + j + "].detector", problems);
+                var condition = group.conditions().get(j);
+                if (isTextCondition(condition.type())) {
+                    validateExtension(condition.matcher(), ExtensionType.MATCHER,
+                        "$.identification.groups[" + i + "].conditions[" + j + "].matcher", problems);
+                } else if ("QR".equals(condition.type()) || "BARCODE".equals(condition.type())) {
+                    validateExtension(condition.detector(), ExtensionType.DETECTOR,
+                        "$.identification.groups[" + i + "].conditions[" + j + "].detector", problems);
+                }
             }
         }
+    }
+
+    private boolean isTextCondition(String type) {
+        return "TEXT".equals(type) || "TEXT_FUZZY".equals(type);
     }
 
     private void validateAnchors(List<AnchorDto> anchors, GeometryDto geometry, List<ConfigurationProblem> problems) {
@@ -63,7 +74,7 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
                 problems.add(problem("DUPLICATE_ID", "$.anchors[" + i + "].id", "Duplicate anchor id"));
             }
             positive(anchor.page(), "$.anchors[" + i + "].page", problems);
-            validateExtension(anchor.detector(), "$.anchors[" + i + "].detector", problems);
+            validateExtension(anchor.detector(), ExtensionType.DETECTOR, "$.anchors[" + i + "].detector", problems);
             validateRegion(anchor.searchRegion(), "$.anchors[" + i + "].searchRegion", problems);
             if (anchor.referenceFeature() != null) {
                 validateRegion(anchor.referenceFeature().bounds(), "$.anchors[" + i + "].referenceFeature.bounds", problems);
@@ -105,9 +116,9 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
                     problems.add(problem("DUPLICATE_OUTPUT_COLUMN", "$.fields[" + i + "].output.columnName", "Duplicate output column"));
                 }
             }
-            validateExtensions(field.imageProcessors(), "$.fields[" + i + "].imageProcessors", problems);
-            validateExtensions(field.transformers(), "$.fields[" + i + "].transformers", problems);
-            validateExtensions(field.validators(), "$.fields[" + i + "].validators", problems);
+            validateExtensions(field.imageProcessors(), ExtensionType.IMAGE_PROCESSOR, "$.fields[" + i + "].imageProcessors", problems);
+            validateExtensions(field.transformers(), ExtensionType.VALUE_TRANSFORMER, "$.fields[" + i + "].transformers", problems);
+            validateExtensions(field.validators(), ExtensionType.VALIDATOR, "$.fields[" + i + "].validators", problems);
             validateOcr(field.ocr(), "$.fields[" + i + "].ocr", problems);
         }
     }
@@ -144,15 +155,15 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         }
     }
 
-    private void validateExtensions(List<ExtensionRefDto> refs, String path, List<ConfigurationProblem> problems) {
+    private void validateExtensions(List<ExtensionRefDto> refs, ExtensionType expectedType, String path, List<ConfigurationProblem> problems) {
         if (refs != null) {
             for (int i = 0; i < refs.size(); i++) {
-                validateExtension(refs.get(i), path + "[" + i + "]", problems);
+                validateExtension(refs.get(i), expectedType, path + "[" + i + "]", problems);
             }
         }
     }
 
-    private void validateExtension(ExtensionRefDto ref, String path, List<ConfigurationProblem> problems) {
+    private void validateExtension(ExtensionRefDto ref, ExtensionType expectedType, String path, List<ConfigurationProblem> problems) {
         if (ref == null) {
             return;
         }
@@ -166,7 +177,13 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             if (extension.isEmpty()) {
                 problems.add(problem("EXTENSION_NOT_FOUND", path + ".id", "Unknown extension: " + ref.id()));
             } else {
-                for (ExtensionParameterDescriptor parameter : extension.get().descriptor().parameters()) {
+                var descriptor = extension.get().descriptor();
+                if (descriptor.type() != expectedType) {
+                    problems.add(problem("EXTENSION_TYPE_INVALID", path + ".id",
+                        "Extension " + ref.id() + " has type " + descriptor.type() + " but " + expectedType + " is required"));
+                    return;
+                }
+                for (ExtensionParameterDescriptor parameter : descriptor.parameters()) {
                     validateExtensionParameter(ref, parameter, path + ".parameters." + parameter.name(), problems);
                 }
             }

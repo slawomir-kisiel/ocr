@@ -223,7 +223,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
             section.getChildren().add(row);
             if (selectedStep && step != null) {
-                section.getChildren().add(parametersForm.view(step, ref -> replacePipelineStep(pipeline, selected.fieldIndex(), stepIndex, ref)));
+                section.getChildren().add(parametersForm.view(step, pipeline.extensionType(), ref -> replacePipelineStep(pipeline, selected.fieldIndex(), stepIndex, ref)));
             }
         }
         section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));

@@ -10,6 +10,7 @@ import pl.sk.ocr.extensions.standard.detector.TextDetectorExtension;
 import pl.sk.ocr.extensions.standard.image.CondenseContentImageProcessor;
 import pl.sk.ocr.extensions.standard.image.CropEmptyMarginsImageProcessor;
 import pl.sk.ocr.extensions.standard.image.RemoveBoxesImageProcessor;
+import pl.sk.ocr.extensions.standard.matcher.ContainsMatcher;
 import pl.sk.ocr.extensions.standard.matcher.ExactMatcher;
 import pl.sk.ocr.extensions.standard.matcher.FuzzyMatcher;
 import pl.sk.ocr.extensions.standard.matcher.NormalizedMatcher;
@@ -29,6 +30,7 @@ public final class StandardExtensionProvider implements ExtensionProvider {
     public Collection<? extends Extension> extensions() {
         return List.of(
             new ExactMatcher(),
+            new ContainsMatcher(),
             new NormalizedMatcher(),
             new FuzzyMatcher(),
             new RegexMatcher(),

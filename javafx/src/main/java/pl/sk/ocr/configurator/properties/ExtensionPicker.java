@@ -44,11 +44,29 @@ final class ExtensionPicker {
                 setText(empty || item == null ? "" : item.label());
             }
         });
-        list.getSelectionModel().selectFirst();
+        selectCurrent(list, currentId);
         list.setPrefHeight(260);
         dialog.getDialogPane().setContent(new VBox(8, new Label("Available extensions"), list));
+        var okButton = dialog.getDialogPane().lookupButton(ButtonType.OK);
+        okButton.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
         dialog.setResultConverter(button -> button == ButtonType.OK ? list.getSelectionModel().getSelectedItem() : null);
         return dialog.showAndWait();
+    }
+
+    private void selectCurrent(ListView<ExtensionOption> list, String currentId) {
+        if (currentId == null || currentId.isBlank()) {
+            list.getSelectionModel().clearSelection();
+            return;
+        }
+        var normalized = currentId.trim();
+        for (int i = 0; i < list.getItems().size(); i++) {
+            if (list.getItems().get(i).id().equals(normalized)) {
+                list.getSelectionModel().select(i);
+                list.scrollTo(i);
+                return;
+            }
+        }
+        list.getSelectionModel().clearSelection();
     }
 
     private List<ExtensionOption> options(ExtensionType type, String currentId) {

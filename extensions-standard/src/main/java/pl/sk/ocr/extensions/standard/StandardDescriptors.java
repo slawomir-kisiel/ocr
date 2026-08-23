@@ -42,5 +42,11 @@ public final class StandardDescriptors {
         return new ExtensionParameterDescriptor(name, displayName, description, ExtensionParameterType.REGEX, required,
             null, defaultValue);
     }
+
+    public static ExtensionParameterDescriptor booleanParameter(String name, String displayName, String description,
+                                                               boolean required, Boolean defaultValue) {
+        return new ExtensionParameterDescriptor(name, displayName, description, ExtensionParameterType.BOOLEAN, required,
+            null, defaultValue);
+    }
 }
 

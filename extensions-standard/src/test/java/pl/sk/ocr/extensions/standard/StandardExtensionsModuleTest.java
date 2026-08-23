@@ -21,6 +21,7 @@ class StandardExtensionsModuleTest {
             .extracting(extension -> extension.descriptor().id().value())
             .containsExactlyInAnyOrderElementsOf(Set.of(
                 "exact",
+                "contains",
                 "normalized",
                 "fuzzy",
                 "regex",

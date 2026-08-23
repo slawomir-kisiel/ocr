@@ -622,6 +622,7 @@ Pierwszy zestaw:
 
 ```text
 exact
+contains
 normalized
 fuzzy
 regex

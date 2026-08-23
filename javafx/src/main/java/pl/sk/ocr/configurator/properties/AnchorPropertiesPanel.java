@@ -211,7 +211,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         section.getChildren().add(titledPane("Anchor", anchorContent));
         var anchor = anchor(anchorIndex);
         if (anchor != null && anchor.detector() != null) {
-            section.getChildren().add(parametersForm.view(anchor.detector(), ref -> replaceDetector(anchorIndex, ref)));
+            section.getChildren().add(parametersForm.view(anchor.detector(), ExtensionType.DETECTOR, ref -> replaceDetector(anchorIndex, ref)));
         }
 
         var searchRegionContent = new VBox(8);

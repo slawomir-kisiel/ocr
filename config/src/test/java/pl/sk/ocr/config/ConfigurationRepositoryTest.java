@@ -44,6 +44,20 @@ class ConfigurationRepositoryTest {
     }
 
     @Test
+    void rejectsExtensionWithWrongType() {
+        var repository = repository(List.of(
+            new TestExtension("normalized"),
+            new TestExtension("text", ExtensionType.MATCHER)
+        ));
+
+        assertThatThrownBy(() -> repository.load(fixture("profiles/minimal-valid-profile.json")))
+            .isInstanceOf(ConfigurationException.class)
+            .satisfies(error -> assertThat(((ConfigurationException) error).problems())
+                .extracting(ConfigurationProblem::code)
+                .contains("EXTENSION_TYPE_INVALID"));
+    }
+
+    @Test
     void rejectsInvalidProfileWorkers() {
         var repository = repository();
 
@@ -58,7 +72,7 @@ class ConfigurationRepositoryTest {
     void rejectsInvalidCategoryRegion() {
         var loader = categoryLoader(List.of(
             new TestExtension("normalized"),
-            new TestExtension("text")
+            new TestExtension("text", ExtensionType.DETECTOR)
         ));
 
         assertThatThrownBy(() -> loader.load(fixture("invalid/invalid-region-category.json")))
@@ -72,7 +86,7 @@ class ConfigurationRepositoryTest {
     void rejectsMissingRequiredExtensionParameter() {
         var loader = categoryLoader(List.of(
             new TestExtension("normalized"),
-            new TestExtension("text", List.of(new ExtensionParameterDescriptor(
+            new TestExtension("text", ExtensionType.DETECTOR, List.of(new ExtensionParameterDescriptor(
                 "text",
                 "Text",
                 "",
@@ -94,7 +108,7 @@ class ConfigurationRepositoryTest {
     void rejectsUnknownGeometryAnchorReference() {
         var loader = categoryLoader(List.of(
             new TestExtension("normalized"),
-            new TestExtension("text")
+            new TestExtension("text", ExtensionType.DETECTOR)
         ));
 
         assertThatThrownBy(() -> loader.load(fixture("invalid/invalid-anchor-reference-category.json")))
@@ -107,9 +121,9 @@ class ConfigurationRepositoryTest {
     private static ConfigurationRepository repository() {
         return repository(List.of(
             new TestExtension("normalized"),
-            new TestExtension("text"),
-            new TestExtension("trim"),
-            new TestExtension("required")
+            new TestExtension("text", ExtensionType.DETECTOR),
+            new TestExtension("trim", ExtensionType.VALUE_TRANSFORMER),
+            new TestExtension("required", ExtensionType.VALIDATOR)
         ));
     }
 
@@ -135,8 +149,12 @@ class ConfigurationRepositoryTest {
             this(new ExtensionDescriptor(new ExtensionId(id), ExtensionType.MATCHER, id, "", "1.0", List.of()));
         }
 
-        TestExtension(String id, List<ExtensionParameterDescriptor> parameters) {
-            this(new ExtensionDescriptor(new ExtensionId(id), ExtensionType.MATCHER, id, "", "1.0", parameters));
+        TestExtension(String id, ExtensionType type) {
+            this(new ExtensionDescriptor(new ExtensionId(id), type, id, "", "1.0", List.of()));
+        }
+
+        TestExtension(String id, ExtensionType type, List<ExtensionParameterDescriptor> parameters) {
+            this(new ExtensionDescriptor(new ExtensionId(id), type, id, "", "1.0", parameters));
         }
     }
 }

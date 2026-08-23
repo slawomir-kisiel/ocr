@@ -15,8 +15,10 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.domain.identifier.ExtensionId;
+import pl.sk.ocr.extension.api.ExtensionDescriptor;
 import pl.sk.ocr.extension.api.ExtensionParameterDescriptor;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionType;
 
 final class ExtensionParametersForm {
     private static final String ERROR_STYLE = "-fx-text-fill: #b91c1c;";
@@ -27,13 +29,13 @@ final class ExtensionParametersForm {
         this.registry = registry;
     }
 
-    Node view(ExtensionRefDto ref, Consumer<ExtensionRefDto> onChange) {
+    Node view(ExtensionRefDto ref, ExtensionType expectedType, Consumer<ExtensionRefDto> onChange) {
         var content = new VBox(8);
         if (ref == null || ref.id() == null || ref.id().isBlank()) {
             content.getChildren().add(message("Choose an extension to edit parameters."));
             return titledPane("Parameters", content);
         }
-        var descriptor = descriptor(ref.id());
+        var descriptor = descriptor(ref.id(), expectedType);
         if (descriptor == null) {
             content.getChildren().add(message("Extension is unresolved. Parameters are preserved in JSON."));
             return titledPane("Parameters", content);
@@ -54,9 +56,12 @@ final class ExtensionParametersForm {
         return titledPane("Parameters", content);
     }
 
-    private pl.sk.ocr.extension.api.ExtensionDescriptor descriptor(String id) {
+    private ExtensionDescriptor descriptor(String id, ExtensionType expectedType) {
         try {
-            return registry.find(new ExtensionId(id)).map(extension -> extension.descriptor()).orElse(null);
+            return registry.find(new ExtensionId(id))
+                .map(extension -> extension.descriptor())
+                .filter(descriptor -> expectedType == null || descriptor.type() == expectedType)
+                .orElse(null);
         } catch (RuntimeException e) {
             return null;
         }

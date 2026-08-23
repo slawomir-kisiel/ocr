@@ -446,6 +446,7 @@ Pierwsza wersja powinna przewidywać co najmniej:
 | ID | Znaczenie |
 | -- | --------- |
 | `exact` | dokładne dopasowanie |
+| `contains` | dopasowanie, gdy tekst OCR zawiera wartość oczekiwaną; parametr `caseSensitive` steruje uwzględnianiem wielkości liter |
 | `normalized` | dopasowanie po normalizacji |
 | `fuzzy` | dopasowanie z tolerancją błędów OCR |
 | `regex` | dopasowanie wyrażeniem regularnym |

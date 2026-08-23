@@ -5,10 +5,25 @@ import java.util.Locale;
 import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
 import pl.sk.ocr.config.runtime.IdentificationCondition;
 import pl.sk.ocr.domain.geometry.Region;
+import pl.sk.ocr.extension.api.DefaultExtensionRegistry;
+import pl.sk.ocr.extension.api.ExtensionParameters;
+import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.matcher.MatchRequest;
+import pl.sk.ocr.extension.api.matcher.Matcher;
 import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.ocr.OcrWord;
 
 public final class CategoryIdentificationService {
+    private final ExtensionRegistry extensionRegistry;
+
+    public CategoryIdentificationService() {
+        this(new DefaultExtensionRegistry(List.of()));
+    }
+
+    public CategoryIdentificationService(ExtensionRegistry extensionRegistry) {
+        this.extensionRegistry = extensionRegistry;
+    }
+
     public IdentificationResult identify(List<CategoryRuntimeConfiguration> categories, OcrText pageOcr) {
         var matches = categories.stream()
             .filter(category -> matches(category, pageOcr))
@@ -29,15 +44,23 @@ public final class CategoryIdentificationService {
 
     private boolean matches(IdentificationCondition condition, OcrText pageOcr) {
         return switch (condition.type()) {
-            case "TEXT" -> containsText(pageOcr, condition.expectedText(), condition.searchRegion(), false);
-            case "TEXT_FUZZY" -> containsText(pageOcr, condition.expectedText(), condition.searchRegion(), true);
+            case "TEXT" -> containsText(condition, pageOcr, false);
+            case "TEXT_FUZZY" -> containsText(condition, pageOcr, true);
             case "QR", "BARCODE" -> false;
             default -> false;
         };
     }
 
-    private boolean containsText(OcrText ocr, String expected, Region searchRegion, boolean fuzzy) {
-        var haystack = searchRegion == null ? ocr.value() : wordsInRegion(ocr.words(), searchRegion);
+    private boolean containsText(IdentificationCondition condition, OcrText ocr, boolean fuzzy) {
+        var expected = condition.expectedText();
+        var haystack = condition.searchRegion() == null ? ocr.value() : wordsInRegion(ocr.words(), condition.searchRegion());
+        if (condition.matcher() != null) {
+            var extension = extensionRegistry.find(condition.matcher().id());
+            if (extension.isEmpty() || !(extension.get() instanceof Matcher matcher)) {
+                return false;
+            }
+            return matcher.match(new MatchRequest(expected, haystack, ExtensionParameters.of(condition.matcher().parameters()))).matched();
+        }
         var normalizedHaystack = normalize(haystack);
         var normalizedExpected = normalize(expected);
         if (normalizedHaystack.contains(normalizedExpected)) {

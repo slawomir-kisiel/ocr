@@ -188,7 +188,12 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
                 refreshAll.run();
             }
         });
-        conditionType.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
+        conditionType.valueProperty().addListener((obs, old, value) -> {
+            applySelectedCondition();
+            if (!refreshing) {
+                refreshAll.run();
+            }
+        });
         addDraftListener(conditionPage, this::applySelectedCondition);
         addDraftListener(conditionExpectedText, this::applySelectedCondition);
         addDraftListener(conditionMatcherId, this::applySelectedCondition);
@@ -244,17 +249,21 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addFormRow(identificationContent, "Condition", new Label(String.valueOf(conditionIndex + 1)));
         addFormRow(identificationContent, "Type", conditionType);
         addFormRow(identificationContent, "Page", conditionPage);
-        addFormRow(identificationContent, "Expected Text", conditionExpectedText);
-        addFormRow(identificationContent, "Matcher ID", extensionInput(conditionMatcherId, pickMatcher));
-        addFormRow(identificationContent, "Detector ID", extensionInput(conditionDetectorId, pickDetector));
+        var type = nullToDefault(conditionType.getValue(), "TEXT");
+        if (isTextCondition(type)) {
+            addFormRow(identificationContent, "Expected Text", conditionExpectedText);
+            addFormRow(identificationContent, "Matcher ID", extensionInput(conditionMatcherId, pickMatcher));
+        } else {
+            addFormRow(identificationContent, "Detector ID", extensionInput(conditionDetectorId, pickDetector));
+        }
         section.getChildren().add(titledPane("Identification", identificationContent));
 
         var condition = condition(groupIndex, conditionIndex);
-        if (condition != null && condition.matcher() != null) {
-            section.getChildren().add(parametersForm.view(condition.matcher(), ref -> replaceConditionMatcher(groupIndex, conditionIndex, ref)));
+        if (condition != null && isTextCondition(type) && condition.matcher() != null) {
+            section.getChildren().add(parametersForm.view(condition.matcher(), ExtensionType.MATCHER, ref -> replaceConditionMatcher(groupIndex, conditionIndex, ref)));
         }
-        if (condition != null && condition.detector() != null) {
-            section.getChildren().add(parametersForm.view(condition.detector(), ref -> replaceConditionDetector(groupIndex, conditionIndex, ref)));
+        if (condition != null && !isTextCondition(type) && condition.detector() != null) {
+            section.getChildren().add(parametersForm.view(condition.detector(), ExtensionType.DETECTOR, ref -> replaceConditionDetector(groupIndex, conditionIndex, ref)));
         }
 
         var searchRegionContent = new VBox(8);
@@ -343,11 +352,19 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         if (refreshing || viewModel.draft() == null || selected.type() != SelectionType.CONDITION) {
             return;
         }
+        var type = nullToDefault(conditionType.getValue(), "TEXT");
+        var textCondition = isTextCondition(type);
         viewModel.replaceCondition(selected.groupIndex(), selected.conditionIndex(), new ConditionDto(
-            nullToDefault(conditionType.getValue(), "TEXT"), parseInteger(conditionPage.getText()),
-            blankToNull(conditionExpectedText.getText()), extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()),
-            extensionRef(conditionDetectorId.getText(), selectedCondition() == null ? null : selectedCondition().detector()), conditionSearchRegion()));
+            type, parseInteger(conditionPage.getText()),
+            textCondition ? blankToNull(conditionExpectedText.getText()) : null,
+            textCondition ? extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()) : null,
+            textCondition ? null : extensionRef(conditionDetectorId.getText(), selectedCondition() == null ? null : selectedCondition().detector()),
+            conditionSearchRegion()));
         afterChange.run();
+    }
+
+    private boolean isTextCondition(String type) {
+        return "TEXT".equals(type) || "TEXT_FUZZY".equals(type);
     }
 
     private boolean hasCompleteConditionSearchRegion() {

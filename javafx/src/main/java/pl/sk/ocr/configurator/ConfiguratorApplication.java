@@ -51,6 +51,7 @@ import pl.sk.ocr.configurator.properties.GeometryPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection;
 import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.SelectionType;
+import pl.sk.ocr.configurator.result.CategoryTestResultPanel;
 import pl.sk.ocr.configurator.result.FieldResultPanel;
 import pl.sk.ocr.configurator.trace.TraceViewerPanel;
 import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
@@ -94,6 +95,7 @@ public final class ConfiguratorApplication extends Application {
     private PropertiesPanel propertiesPanel;
     private TraceViewerPanel traceViewerPanel;
     private FieldResultPanel fieldResultPanel;
+    private CategoryTestResultPanel categoryTestResultPanel;
 
     public static void main(String[] args) {
         launch(args);
@@ -130,6 +132,7 @@ public final class ConfiguratorApplication extends Application {
             anchorPropertiesPanel, geometryPropertiesPanel, fieldPropertiesPanel, this::selectedNodeType, this::emptyDetailsForm);
         traceViewerPanel = new TraceViewerPanel(() -> viewModel.session().latestTrace(), () -> viewModel.session().traceImageStore());
         fieldResultPanel = new FieldResultPanel(() -> viewModel.session().latestFieldResult(), () -> viewModel.session().latestTrace());
+        categoryTestResultPanel = new CategoryTestResultPanel(() -> viewModel.session().latestDocumentResult());
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -207,10 +210,12 @@ public final class ConfiguratorApplication extends Application {
         detailsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         detailsScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
         detailsPanel.setMaxWidth(Double.MAX_VALUE);
+        var categoryTestResultView = categoryTestResultPanel.view();
         var fieldResultView = fieldResultPanel.view();
         var traceView = traceViewerPanel.view();
         var propertiesTabContent = new VBox(8, sectionLabel("Properties"), detailsScroll);
         var validationTraceContent = new VBox(8, sectionLabel("Validation"), validationList,
+            sectionLabel("Category Test Result"), categoryTestResultView,
             sectionLabel("Field Result"), fieldResultView, sectionLabel("Trace"), traceView);
         validationTraceContent.setPadding(new Insets(8));
         var validationTraceScroll = new ScrollPane(validationTraceContent);
@@ -227,6 +232,7 @@ public final class ConfiguratorApplication extends Application {
         right.setPadding(new Insets(8));
         VBox.setVgrow(detailsScroll, Priority.ALWAYS);
         VBox.setVgrow(propertiesTabContent, Priority.ALWAYS);
+        VBox.setVgrow(categoryTestResultView, Priority.NEVER);
         VBox.setVgrow(fieldResultView, Priority.NEVER);
         VBox.setVgrow(traceView, Priority.ALWAYS);
         VBox.setVgrow(validationTraceContent, Priority.ALWAYS);
@@ -472,6 +478,7 @@ public final class ConfiguratorApplication extends Application {
                     showError(error);
                 } else {
                     refreshAll();
+                    categoryTestResultPanel.refresh();
                     traceViewerPanel.refresh();
                 }
             }));
@@ -726,6 +733,7 @@ public final class ConfiguratorApplication extends Application {
         validationList.getItems().setAll(viewModel.validationProblems().stream()
             .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
             .toList());
+        categoryTestResultPanel.refresh();
         fieldResultPanel.refresh();
         traceViewerPanel.refresh();
     }
