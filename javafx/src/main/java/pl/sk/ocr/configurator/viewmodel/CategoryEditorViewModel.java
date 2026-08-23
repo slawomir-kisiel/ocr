@@ -301,7 +301,7 @@ public final class CategoryEditorViewModel {
         }
         var runId = previewRunGuard.next();
         status.set("Running category test...");
-        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache())).thenApply(result -> {
+        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache(), session.traceImageStore())).thenApply(result -> {
             if (previewRunGuard.isLatest(runId)) {
                 session.latestDocumentResult(result);
                 session.latestTrace(result.trace());

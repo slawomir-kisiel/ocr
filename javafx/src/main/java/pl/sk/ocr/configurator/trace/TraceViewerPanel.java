@@ -71,6 +71,11 @@ public final class TraceViewerPanel {
         return root;
     }
 
+    public List<TraceImageRef> selectedImageRefs() {
+        var selected = stages.getSelectionModel().getSelectedItem();
+        return selected == null ? List.of() : selected.images();
+    }
+
     public void refresh() {
         var trace = traceSupplier.get();
         if (trace == null) {

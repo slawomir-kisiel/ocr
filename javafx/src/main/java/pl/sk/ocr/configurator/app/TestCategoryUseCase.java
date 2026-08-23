@@ -17,11 +17,16 @@ import pl.sk.ocr.core.document.DocumentReader;
 import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.core.document.RenderedDocument;
 import pl.sk.ocr.core.ocr.OcrEngine;
+import pl.sk.ocr.core.ocr.OcrOptions;
 import pl.sk.ocr.core.processing.DocumentProcessor;
 import pl.sk.ocr.domain.config.ConfigurationVersion;
 import pl.sk.ocr.domain.identifier.CategoryId;
 import pl.sk.ocr.domain.identifier.PageNumber;
+import pl.sk.ocr.domain.issue.ProcessingStage;
+import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.result.DocumentResult;
+import pl.sk.ocr.domain.trace.ProcessingTrace;
+import pl.sk.ocr.domain.trace.TraceEntry;
 import pl.sk.ocr.domain.trace.TraceMode;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
@@ -38,6 +43,10 @@ public final class TestCategoryUseCase {
     }
 
     public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages) {
+        return test(category, documentPath, pages, new InMemoryTraceImageStore());
+    }
+
+    public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages, TraceImageStore traceImageStore) {
         if (category == null) {
             throw new IllegalArgumentException("category is required");
         }
@@ -47,8 +56,56 @@ public final class TestCategoryUseCase {
         if (pages == null || pages.isEmpty()) {
             throw new IllegalArgumentException("rendered document pages are required");
         }
+        if (traceImageStore == null) {
+            throw new IllegalArgumentException("trace image store is required");
+        }
+        traceImageStore.clear();
+        var runtime = runtime(category);
         var processor = new DocumentProcessor(inMemoryReader(pages), ocrEngine, extensionRegistry);
-        return processor.process(documentPath, runtime(category));
+        var result = processor.process(documentPath, runtime);
+        var categorizationDiagnostics = categorizationDiagnostics(pages, runtime.profile().ocr(), traceImageStore);
+        return enrichTrace(result, categorizationDiagnostics);
+    }
+
+    private TraceEntry categorizationDiagnostics(Map<PageNumber, ProcessingImage> pages, OcrSettings ocr, TraceImageStore traceImageStore) {
+        var page = pages.get(new PageNumber(1));
+        if (page == null) {
+            return null;
+        }
+        var ref = traceImageStore.put("Categorization OCR input page 1", page);
+        var ocrText = recognize(page, ocr);
+        return new TraceEntry(
+            ProcessingStage.CATEGORY_IDENTIFICATION,
+            "Categorization OCR input and raw OCR",
+            Map.of(
+                "page", 1,
+                "rawOcr", ocrText.value(),
+                "rawOcrHocr", ocrText.hocr()
+            ),
+            List.of(ref)
+        );
+    }
+
+    private OcrText recognize(ProcessingImage page, OcrSettings ocr) {
+        try {
+            return ocrEngine.recognize(page, new OcrOptions(ocr.language(), ocr.datapath()));
+        } catch (RuntimeException | Error e) {
+            System.err.println("Category test diagnostic OCR failed; continuing with regular category test.");
+            e.printStackTrace(System.err);
+            return new OcrText("", List.of());
+        }
+    }
+
+    private DocumentResult enrichTrace(DocumentResult result, TraceEntry categorizationDiagnostics) {
+        if (categorizationDiagnostics == null) {
+            return result;
+        }
+        var trace = result.trace() == null ? ProcessingTrace.off() : result.trace();
+        var entries = new java.util.ArrayList<TraceEntry>();
+        entries.add(categorizationDiagnostics);
+        entries.addAll(trace.entries());
+        var enrichedTrace = new ProcessingTrace(trace.mode() == TraceMode.OFF ? TraceMode.FULL : trace.mode(), trace.stages(), entries);
+        return new DocumentResult(result.documentId(), result.categoryId(), result.status(), result.fields(), result.issues(), enrichedTrace);
     }
 
     private DocumentReader inMemoryReader(Map<PageNumber, ProcessingImage> pages) {

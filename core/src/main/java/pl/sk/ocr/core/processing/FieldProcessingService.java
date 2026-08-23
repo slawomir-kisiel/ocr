@@ -8,6 +8,7 @@ import pl.sk.ocr.core.image.BufferedProcessingImage;
 import pl.sk.ocr.core.ocr.OcrEngine;
 import pl.sk.ocr.core.ocr.OcrOptions;
 import pl.sk.ocr.domain.geometry.Transform;
+import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.issue.ErrorScope;
 import pl.sk.ocr.domain.issue.IssueCode;
 import pl.sk.ocr.domain.issue.ProcessingIssue;
@@ -38,14 +39,24 @@ public final class FieldProcessingService {
     }
 
     public String recognizeRaw(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
+        return preview(field, pageImage, transform).ocrText().value();
+    }
+
+    public FieldProcessingPreview preview(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
+        var steps = new ArrayList<ImageTraceStep>();
         var currentImage = crop(pageImage, field, transform);
+        steps.add(new ImageTraceStep("Field crop input", currentImage));
+        var processorIndex = 1;
         for (ExtensionRef processorRef : field.imageProcessors()) {
             currentImage = imageProcessor(processorRef).process(
                 new ImageProcessingRequest(currentImage, parameters(processorRef)),
                 () -> TraceSink.NOOP
             );
+            steps.add(new ImageTraceStep("After image processor %03d %s".formatted(processorIndex, processorRef.id().value()), currentImage));
+            processorIndex++;
         }
-        return ocrEngine.recognize(currentImage, options(field.ocr())).value();
+        steps.add(new ImageTraceStep("OCR input", currentImage));
+        return new FieldProcessingPreview(List.copyOf(steps), ocrEngine.recognize(currentImage, options(field.ocr())));
     }
 
     public FieldResult extract(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
@@ -176,5 +187,14 @@ public final class FieldProcessingService {
 
     private String message(RuntimeException e) {
         return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
+    public record ImageTraceStep(String label, ProcessingImage image) {
+    }
+
+    public record FieldProcessingPreview(List<ImageTraceStep> images, OcrText ocrText) {
+        public FieldProcessingPreview {
+            images = List.copyOf(images == null ? List.of() : images);
+        }
     }
 }

@@ -32,6 +32,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
@@ -41,6 +42,7 @@ import pl.sk.ocr.config.dto.ReferenceFeatureDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.app.ConfigurationFileService;
 import pl.sk.ocr.configurator.app.ConfiguratorServices;
+import pl.sk.ocr.configurator.app.DiagnosticExportUseCase;
 import pl.sk.ocr.configurator.app.OpenReferenceDocumentUseCase;
 import pl.sk.ocr.configurator.app.RunPageOcrUseCase;
 import pl.sk.ocr.configurator.properties.AnchorPropertiesPanel;
@@ -54,6 +56,7 @@ import pl.sk.ocr.configurator.properties.IdentificationPropertiesPanel.Selection
 import pl.sk.ocr.configurator.result.CategoryTestResultPanel;
 import pl.sk.ocr.configurator.result.FieldResultPanel;
 import pl.sk.ocr.configurator.trace.TraceViewerPanel;
+import pl.sk.ocr.configurator.validation.DraftValidationProblem;
 import pl.sk.ocr.configurator.viewer.ScaledCoordinateMapper;
 import pl.sk.ocr.configurator.viewer.ViewerPoint;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
@@ -65,6 +68,7 @@ public final class ConfiguratorApplication extends Application {
 
     private ConfiguratorServices services;
     private CategoryEditorViewModel viewModel;
+    private Stage primaryStage;
     private final TreeView<ConfigurationTreeNode> configurationTree = new TreeView<>();
     private final ImageView pageImage = new ImageView();
     private final DocumentViewerOverlay viewer = new DocumentViewerOverlay(pageImage, this::updateSelectedEditableRegionFromViewer, this::applyDrawnRegion);
@@ -72,7 +76,7 @@ public final class ConfiguratorApplication extends Application {
     private final VBox detailsPanel = new VBox(8);
     private final ScrollPane detailsScroll = new ScrollPane(detailsPanel);
     private final Label detailsInfo = new Label();
-    private final ListView<String> validationList = new ListView<>();
+    private final TableView<ValidationRow> validationTable = new TableView<>();
     private final Label status = new Label("Ready");
     private final Label pageLabel = new Label("Page 0/0");
     private final Button previousPage = compactButton("<", "Previous Page", () -> changePage(-1));
@@ -93,6 +97,7 @@ public final class ConfiguratorApplication extends Application {
     private CategoryPropertiesPanel categoryPropertiesPanel;
     private FieldPropertiesPanel fieldPropertiesPanel;
     private PropertiesPanel propertiesPanel;
+    private final DiagnosticExportUseCase diagnosticExport = new DiagnosticExportUseCase();
     private TraceViewerPanel traceViewerPanel;
     private FieldResultPanel fieldResultPanel;
     private CategoryTestResultPanel categoryTestResultPanel;
@@ -103,6 +108,7 @@ public final class ConfiguratorApplication extends Application {
 
     @Override
     public void start(Stage stage) {
+        primaryStage = stage;
         services = ConfiguratorServices.production();
         viewModel = new CategoryEditorViewModel(
             new ConfigurationFileService(services.mapper()),
@@ -202,7 +208,7 @@ public final class ConfiguratorApplication extends Application {
             switchToNodePage(selected == null ? null : selected.getValue());
             refreshDetails();
         });
-        validationList.setPrefHeight(180);
+        configureValidationTable();
         configureCategoryDetailsForm();
         detailsScroll.setFitToWidth(true);
         detailsScroll.setFitToHeight(false);
@@ -214,9 +220,9 @@ public final class ConfiguratorApplication extends Application {
         var fieldResultView = fieldResultPanel.view();
         var traceView = traceViewerPanel.view();
         var propertiesTabContent = new VBox(8, sectionLabel("Properties"), detailsScroll);
-        var validationTraceContent = new VBox(8, sectionLabel("Validation"), validationList,
+        var validationTraceContent = new VBox(8, sectionLabel("Validation"), validationTable,
             sectionLabel("Category Test Result"), categoryTestResultView,
-            sectionLabel("Field Result"), fieldResultView, sectionLabel("Trace"), traceView);
+            sectionLabel("Field Result"), fieldResultView, sectionLabel("Trace"), traceExportBar(), traceView);
         validationTraceContent.setPadding(new Insets(8));
         var validationTraceScroll = new ScrollPane(validationTraceContent);
         validationTraceScroll.setFitToWidth(true);
@@ -254,6 +260,46 @@ public final class ConfiguratorApplication extends Application {
         var tab = new Tab(title, content);
         tab.setClosable(false);
         return tab;
+    }
+
+    private void configureValidationTable() {
+        validationTable.setPrefHeight(180);
+        validationTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        validationTable.getColumns().add(validationColumn("Severity", "severity", 70));
+        validationTable.getColumns().add(validationColumn("Code", "code", 150));
+        validationTable.getColumns().add(validationColumn("Path", "path", 190));
+        validationTable.getColumns().add(validationColumn("Message", "message", 260));
+        validationTable.setRowFactory(table -> {
+            var row = new TableRow<ValidationRow>();
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty()) {
+                    navigateToValidationProblem(row.getItem().path());
+                }
+            });
+            return row;
+        });
+        validationTable.setStyle("-fx-text-fill: #111827;");
+        validationTable.skinProperty().addListener((obs, old, skin) ->
+            Platform.runLater(() -> validationTable.lookupAll(".column-header .label")
+                .forEach(node -> node.setStyle("-fx-text-fill: #111827;"))));
+    }
+
+    private TableColumn<ValidationRow, String> validationColumn(String title, String property, double width) {
+        var column = new TableColumn<ValidationRow, String>(title);
+        column.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>(property));
+        column.setPrefWidth(width);
+        column.setStyle("-fx-text-fill: #111827;");
+        return column;
+    }
+
+    private HBox traceExportBar() {
+        var selected = button("Export Selected Image", () -> exportSelectedTraceImage(primaryStage));
+        var allImages = button("Export All Images", () -> exportAllTraceImages(primaryStage));
+        var metadata = button("Export Metadata", () -> exportTraceMetadata(primaryStage));
+        var bundle = button("Export Bundle ZIP", () -> exportTraceBundle(primaryStage));
+        var bar = new HBox(6, selected, allImages, metadata, bundle);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        return bar;
     }
 
     private Label sectionLabel(String text) {
@@ -487,6 +533,67 @@ public final class ConfiguratorApplication extends Application {
     private void validate() {
         viewModel.validate();
         refreshAll();
+    }
+
+    private void exportSelectedTraceImage(Stage stage) {
+        var directory = chooseExportDirectory(stage);
+        if (directory == null) {
+            return;
+        }
+        status.setText("Exporting selected trace image...");
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportSelectedImage(directory,
+                viewModel.session().latestTrace(), viewModel.session().traceImageStore(), traceViewerPanel.selectedImageRefs()))
+            .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
+    }
+
+    private void exportAllTraceImages(Stage stage) {
+        var directory = chooseExportDirectory(stage);
+        if (directory == null) {
+            return;
+        }
+        status.setText("Exporting trace images...");
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportAllImages(directory,
+                viewModel.session().latestTrace(), viewModel.session().traceImageStore()))
+            .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
+    }
+
+    private void exportTraceMetadata(Stage stage) {
+        var directory = chooseExportDirectory(stage);
+        if (directory == null) {
+            return;
+        }
+        status.setText("Exporting trace metadata...");
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportMetadata(directory, viewModel.session().latestTrace()))
+            .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
+    }
+
+    private void exportTraceBundle(Stage stage) {
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP bundle", "*.zip"));
+        chooser.setInitialFileName("diagnostic-bundle.zip");
+        var file = chooser.showSaveDialog(stage);
+        if (file == null) {
+            return;
+        }
+        status.setText("Exporting diagnostic bundle...");
+        services.backgroundExecutor().submit(() -> diagnosticExport.exportBundle(file.toPath(),
+                viewModel.session().latestTrace(), viewModel.session().traceImageStore()))
+            .whenComplete((result, error) -> Platform.runLater(() -> finishExport(result, error)));
+    }
+
+    private Path chooseExportDirectory(Stage stage) {
+        var chooser = new DirectoryChooser();
+        chooser.setTitle("Select diagnostics export folder");
+        var directory = chooser.showDialog(stage);
+        return directory == null ? null : directory.toPath();
+    }
+
+    private void finishExport(DiagnosticExportUseCase.ExportResult result, Throwable error) {
+        if (error != null) {
+            showError(error);
+            return;
+        }
+        status.setText("Diagnostics exported: " + result.files().size() + " file(s) to " + result.target());
     }
 
     private void changePage(int delta) {
@@ -730,9 +837,7 @@ public final class ConfiguratorApplication extends Application {
         refreshDetails();
         status.setText(viewModel.status());
         refreshPageStatus();
-        validationList.getItems().setAll(viewModel.validationProblems().stream()
-            .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
-            .toList());
+        refreshValidationTable();
         categoryTestResultPanel.refresh();
         fieldResultPanel.refresh();
         traceViewerPanel.refresh();
@@ -1014,12 +1119,16 @@ public final class ConfiguratorApplication extends Application {
 
     private void refreshAfterDraftEdit() {
         status.setText(viewModel.status());
-        validationList.getItems().setAll(viewModel.validationProblems().stream()
-            .map(problem -> problem.code() + " " + problem.path() + " " + problem.message())
-            .toList());
+        refreshValidationTable();
         detailsInfo.setText("Dirty=" + viewModel.session().dirty()
             + " | Reference document=" + (viewModel.session().referenceDocument() == null ? "" : viewModel.session().referenceDocument()));
         renderOcrOverlay();
+    }
+
+    private void refreshValidationTable() {
+        validationTable.getItems().setAll(viewModel.validationProblems().stream()
+            .map(ValidationRow::from)
+            .toList());
     }
 
     private Integer parseInteger(String value) {
@@ -1252,6 +1361,68 @@ public final class ConfiguratorApplication extends Application {
         return false;
     }
 
+    private void navigateToValidationProblem(String path) {
+        var nodeId = treeNodeIdForValidationPath(path);
+        if (nodeId == null || configurationTree.getRoot() == null) {
+            status.setText("Validation path has no editor mapping: " + path);
+            return;
+        }
+        if (selectTreeNodeAndExpandParents(configurationTree.getRoot(), nodeId)) {
+            configurationTree.scrollTo(configurationTree.getRow(configurationTree.getSelectionModel().getSelectedItem()));
+            refreshDetails();
+            status.setText("Selected validation target: " + path);
+        } else {
+            status.setText("Validation target not found: " + path);
+        }
+    }
+
+    private String treeNodeIdForValidationPath(String path) {
+        if (path == null || path.isBlank() || "$".equals(path) || "$.id".equals(path) || "$.displayName".equals(path)
+            || "$.description".equals(path) || "$.version".equals(path) || path.startsWith("$.pages")) {
+            return "root";
+        }
+        var groupCondition = Pattern.compile("^\\$\\.identification\\.groups\\[(\\d+)]\\.conditions\\[(\\d+)].*").matcher(path);
+        if (groupCondition.matches()) {
+            return "identification.group." + groupCondition.group(1) + ".condition." + groupCondition.group(2);
+        }
+        var group = Pattern.compile("^\\$\\.identification\\.groups\\[(\\d+)].*").matcher(path);
+        if (group.matches()) {
+            return "identification.group." + group.group(1);
+        }
+        if (path.startsWith("$.identification")) {
+            return "identification";
+        }
+        var anchor = Pattern.compile("^\\$\\.anchors\\[(\\d+)].*").matcher(path);
+        if (anchor.matches()) {
+            return "anchor." + anchor.group(1);
+        }
+        if (path.startsWith("$.anchors")) {
+            return "anchors";
+        }
+        if (path.startsWith("$.geometry.strategy")) {
+            return "geometry.strategy";
+        }
+        if (path.startsWith("$.geometry")) {
+            return "geometry";
+        }
+        var pipeline = Pattern.compile("^\\$\\.fields\\[(\\d+)]\\.(imageProcessors|transformers|validators)\\[(\\d+)].*").matcher(path);
+        if (pipeline.matches()) {
+            return "field." + pipeline.group(1) + "." + pipeline.group(2) + "." + pipeline.group(3);
+        }
+        var fieldChild = Pattern.compile("^\\$\\.fields\\[(\\d+)]\\.(ocr|output).*").matcher(path);
+        if (fieldChild.matches()) {
+            return "field." + fieldChild.group(1) + "." + fieldChild.group(2);
+        }
+        var field = Pattern.compile("^\\$\\.fields\\[(\\d+)].*").matcher(path);
+        if (field.matches()) {
+            return "field." + field.group(1);
+        }
+        if (path.startsWith("$.fields")) {
+            return "fields";
+        }
+        return null;
+    }
+
     private Set<String> expandedTreeNodeIds(TreeItem<ConfigurationTreeNode> item) {
         var ids = new HashSet<String>();
         collectExpandedTreeNodeIds(item, ids);
@@ -1320,10 +1491,34 @@ public final class ConfiguratorApplication extends Application {
     private void showError(Throwable error) {
         var cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null ? error.getCause() : error;
         cause.printStackTrace(System.err);
-        status.setText("Error: " + cause.getMessage());
-        var alert = new Alert(Alert.AlertType.ERROR, cause.getMessage(), ButtonType.OK);
+        var message = cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
+        status.setText("Error: " + message);
+        var alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
         alert.setHeaderText("Operation failed");
+        alert.setContentText(message + System.lineSeparator() + System.lineSeparator() + "Type: " + cause.getClass().getName());
         alert.showAndWait();
+    }
+
+    public record ValidationRow(String severity, String code, String path, String message) {
+        static ValidationRow from(DraftValidationProblem problem) {
+            return new ValidationRow("ERROR", problem.code(), problem.path(), problem.message());
+        }
+
+        public String getSeverity() {
+            return severity;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public String getPath() {
+            return path;
+        }
+
+        public String getMessage() {
+            return message;
+        }
     }
 
     private record ConfigurationTreeNode(TreeNodeType type, String label, String id, int index, int childIndex, Integer page) {
