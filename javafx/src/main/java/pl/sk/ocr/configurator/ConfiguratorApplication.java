@@ -89,7 +89,11 @@ import pl.sk.ocr.domain.issue.IssueCode;
 import pl.sk.ocr.domain.issue.ProcessingIssue;
 import pl.sk.ocr.domain.issue.ProcessingStage;
 import pl.sk.ocr.domain.result.DocumentResult;
+import pl.sk.ocr.domain.result.ProcessingStatus;
+import pl.sk.ocr.domain.result.StageResult;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
+import pl.sk.ocr.domain.trace.TraceEntry;
+import pl.sk.ocr.domain.trace.TraceMode;
 
 public final class ConfiguratorApplication extends Application {
     private static final double MIN_ZOOM = 0.2;
@@ -1291,28 +1295,70 @@ public final class ConfiguratorApplication extends Application {
             .map(step -> new ExtensionRef(new ExtensionId(step.id()), step.parameters()))
             .toList();
         status.setText("Applying preprocessing...");
-        services.backgroundExecutor().submit(() -> {
-            var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
-            var prepared = new java.util.LinkedHashMap<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage>();
-            var source = viewModel.session().renderedPageCache().isEmpty()
-                ? viewModel.session().pageCache()
-                : viewModel.session().renderedPageCache();
-            for (var entry : source.entrySet()) {
-                prepared.put(entry.getKey(), service.prepare(entry.getKey(), entry.getValue(), refs));
-            }
-            return prepared;
-        }).whenComplete((prepared, error) -> Platform.runLater(() -> {
+        services.backgroundExecutor().submit(() -> applyWorkspacePreprocessingWithTrace(refs))
+        .whenComplete((result, error) -> Platform.runLater(() -> {
             if (error != null) {
                 showError(error);
                 return;
             }
             viewModel.session().pageCache().clear();
-            viewModel.session().pageCache().putAll(prepared);
-            viewModel.session().clearDownstreamCaches();
+            viewModel.session().pageCache().putAll(result.pages());
+            viewModel.session().ocrCache().clear();
+            viewModel.session().latestFieldResult(null);
+            viewModel.session().latestDocumentResult(null);
+            viewModel.session().latestCategoryTestResults(List.of());
+            viewModel.session().latestTrace(result.trace());
             renderPage();
             refreshAll();
+            traceViewerPanel.refresh();
             status.setText("Preprocessing applied");
         }));
+    }
+
+    private WorkspacePreprocessingApplyResult applyWorkspacePreprocessingWithTrace(List<ExtensionRef> refs) {
+        viewModel.session().traceImageStore().clear();
+        var service = new pl.sk.ocr.core.image.DocumentImagePreprocessingService(services.extensionRegistry());
+        var prepared = new java.util.LinkedHashMap<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage>();
+        var traceEntries = new ArrayList<TraceEntry>();
+        var source = viewModel.session().renderedPageCache().isEmpty()
+            ? viewModel.session().pageCache()
+            : viewModel.session().renderedPageCache();
+        for (var entry : source.entrySet()) {
+            var result = service.prepareWithTrace(entry.getKey(), entry.getValue(), refs);
+            prepared.put(entry.getKey(), result.image());
+            traceEntries.addAll(workspacePreprocessingTraceEntries(result));
+        }
+        var trace = traceEntries.isEmpty()
+            ? ProcessingTrace.off()
+            : new ProcessingTrace(
+                TraceMode.FULL,
+                List.of(new StageResult(ProcessingStage.PAGE_PREPARATION, ProcessingStatus.SUCCESS, List.of())),
+                traceEntries
+            );
+        return new WorkspacePreprocessingApplyResult(prepared, trace);
+    }
+
+    private List<TraceEntry> workspacePreprocessingTraceEntries(pl.sk.ocr.core.image.DocumentImagePreprocessingResult result) {
+        return result.steps().stream().map(step -> {
+            var input = viewModel.session().traceImageStore().put("Workspace preprocessing page "
+                + result.page().value() + " step " + step.order() + " input: " + step.processorId(), step.input());
+            var output = viewModel.session().traceImageStore().put("Workspace preprocessing page "
+                + result.page().value() + " step " + step.order() + " output: " + step.processorId(), step.output());
+            var attributes = new java.util.LinkedHashMap<String, Object>();
+            attributes.put("scope", "DOCUMENT");
+            attributes.put("page", result.page().value());
+            attributes.put("order", step.order());
+            attributes.put("processorId", step.processorId());
+            attributes.put("events", step.events().stream()
+                .map(event -> Map.of("event", event.event(), "attributes", event.attributes()))
+                .toList());
+            return new TraceEntry(
+                ProcessingStage.PAGE_PREPARATION,
+                "Workspace preprocessing step completed",
+                attributes,
+                List.of(input, output)
+            );
+        }).toList();
     }
 
     private pl.sk.ocr.extension.api.image.ProcessingImage workspaceDebugSourceImage(Integer stepIndex) {
@@ -2639,6 +2685,12 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private record RegionEditTarget(RegionTargetType type, int index, int childIndex) {
+    }
+
+    private record WorkspacePreprocessingApplyResult(
+        Map<PageNumber, pl.sk.ocr.extension.api.image.ProcessingImage> pages,
+        ProcessingTrace trace
+    ) {
     }
 
     enum ViewerMode {
