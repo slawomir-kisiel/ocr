@@ -23,6 +23,14 @@ class ImageMagickExtensionProviderTest {
                 "im-profile",
                 "im-grayscale",
                 "im-normalize",
+                "im-contrast-stretch",
+                "im-level",
+                "im-gamma",
+                "im-sigmoidal-contrast",
+                "im-equalize",
+                "im-clahe",
+                "im-local-contrast",
+                "im-white-balance",
                 "im-auto-threshold",
                 "im-adaptive-threshold",
                 "im-deskew",
@@ -63,6 +71,32 @@ class ImageMagickExtensionProviderTest {
         assertGray(output.asBufferedImage().getRGB(0, 0));
         assertGray(output.asBufferedImage().getRGB(1, 0));
         assertThat(output.asBufferedImage()).isNotSameAs(input);
+    }
+
+    @Test
+    void tonalAndContrastProcessorsReturnProcessedImages() {
+        var input = gradientImage();
+        var processors = java.util.List.of(
+            new ContrastStretchImageProcessor(),
+            new LevelImageProcessor(),
+            new GammaImageProcessor(),
+            new SigmoidalContrastImageProcessor(),
+            new EqualizeImageProcessor(),
+            new ClaheImageProcessor(),
+            new LocalContrastImageProcessor(),
+            new WhiteBalanceImageProcessor()
+        );
+
+        for (ImageProcessor processor : processors) {
+            var output = processor.process(
+                new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.empty()),
+                noopContext()
+            );
+
+            assertThat(output.width()).as(processor.descriptor().id().value()).isEqualTo(input.getWidth());
+            assertThat(output.height()).as(processor.descriptor().id().value()).isEqualTo(input.getHeight());
+            assertThat(output.asBufferedImage()).as(processor.descriptor().id().value()).isNotSameAs(input);
+        }
     }
 
     @Test
@@ -154,6 +188,19 @@ class ImageMagickExtensionProviderTest {
             }
         } finally {
             graphics.dispose();
+        }
+        return image;
+    }
+
+    private static BufferedImage gradientImage() {
+        var image = new BufferedImage(64, 48, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                var red = Math.min(255, x * 4);
+                var green = Math.min(255, y * 5);
+                var blue = Math.min(255, 30 + x + y);
+                image.setRGB(x, y, new Color(red, green, blue).getRGB());
+            }
         }
         return image;
     }
