@@ -44,6 +44,32 @@ final class ExtensionParametersForm {
             content.getChildren().add(message("This extension has no parameters."));
             return titledPane("Parameters", content);
         }
+        addParameters(content, ref, descriptor, onChange);
+        return titledPane("Parameters", content);
+    }
+
+    Node inlineView(ExtensionRefDto ref, ExtensionType expectedType, Consumer<ExtensionRefDto> onChange) {
+        var content = new VBox(4);
+        if (ref == null || ref.id() == null || ref.id().isBlank()) {
+            return content;
+        }
+        var descriptor = descriptor(ref.id(), expectedType);
+        if (descriptor == null || descriptor.parameters().isEmpty()) {
+            return content;
+        }
+        addParameters(content, ref, descriptor, onChange);
+        return content;
+    }
+
+    boolean hasParameters(ExtensionRefDto ref, ExtensionType expectedType) {
+        if (ref == null || ref.id() == null || ref.id().isBlank()) {
+            return false;
+        }
+        var descriptor = descriptor(ref.id(), expectedType);
+        return descriptor != null && !descriptor.parameters().isEmpty();
+    }
+
+    private void addParameters(VBox content, ExtensionRefDto ref, ExtensionDescriptor descriptor, Consumer<ExtensionRefDto> onChange) {
         var values = new LinkedHashMap<String, Object>(ref.parameters() == null ? Map.of() : ref.parameters());
         for (var parameter : descriptor.parameters()) {
             if (!values.containsKey(parameter.name()) && parameter.defaultValue() != null) {
@@ -53,7 +79,6 @@ final class ExtensionParametersForm {
         for (var parameter : descriptor.parameters()) {
             addParameter(content, ref.id(), values, parameter, onChange);
         }
-        return titledPane("Parameters", content);
     }
 
     private ExtensionDescriptor descriptor(String id, ExtensionType expectedType) {

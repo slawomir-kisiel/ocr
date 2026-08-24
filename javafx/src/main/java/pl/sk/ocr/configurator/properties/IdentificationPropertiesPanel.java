@@ -2,11 +2,13 @@ package pl.sk.ocr.configurator.properties;
 
 import static pl.sk.ocr.configurator.ui.FormControls.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
@@ -15,12 +17,16 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.SVGPath;
 import pl.sk.ocr.config.dto.ConditionDto;
 import pl.sk.ocr.config.dto.ConditionGroupDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
+import pl.sk.ocr.domain.identifier.ExtensionId;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionType;
 
@@ -33,6 +39,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     private final Consumer<String> pendingSelection;
     private final Runnable activateConditionSearchRegionDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionRegistry extensionRegistry;
     private final ExtensionPicker extensionPicker;
     private final ExtensionParametersForm parametersForm;
     private final Label groupsCount = new Label();
@@ -69,6 +76,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         this.pendingSelection = pendingSelection;
         this.activateConditionSearchRegionDrawing = activateConditionSearchRegionDrawing;
         this.iconFactory = iconFactory;
+        this.extensionRegistry = extensionRegistry;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
         this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
@@ -163,7 +171,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         conditionType.getItems().setAll("TEXT", "QR", "BARCODE");
         installTooltip(conditionType, "Condition type.");
         installTooltip(conditionPage, "Page where this condition should be evaluated. Empty means default behavior.");
-        installTooltip(conditionExpectedText, "Text expected by TEXT condition.");
+        installTooltip(conditionExpectedText, "Text expected in OCR text or detector payload.");
         installTooltip(conditionMatcherId, "Matcher extension id used by this condition.");
         installTooltip(conditionDetectorId, "Detector extension id used by this condition.");
         installTooltip(pickMatcher, "Choose matcher extension from registry.");
@@ -323,21 +331,15 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addFormRow(identificationContent, "Type", conditionType);
         addFormRow(identificationContent, "Page", conditionPage);
         var type = nullToDefault(conditionType.getValue(), "TEXT");
-        if (isTextCondition(type)) {
-            addFormRow(identificationContent, "Expected Text", conditionExpectedText);
-            addFormRow(identificationContent, "Matcher ID", extensionInput(conditionMatcherId, pickMatcher));
-        } else {
-            addFormRow(identificationContent, "Detector ID", extensionInput(conditionDetectorId, pickDetector));
-        }
-        section.getChildren().add(titledPane("Identification", identificationContent));
-
         var condition = condition(groupIndex, conditionIndex);
-        if (condition != null && isTextCondition(type) && condition.matcher() != null) {
-            section.getChildren().add(parametersForm.view(condition.matcher(), ExtensionType.MATCHER, ref -> replaceConditionMatcher(groupIndex, conditionIndex, ref)));
+        if (!isTextCondition(type) && !hasSingleDetectorOption(type)) {
+            addExtensionRow(identificationContent, "Detector", extensionInput(conditionDetectorId, pickDetector),
+                condition == null ? null : condition.detector(), ExtensionType.DETECTOR, ref -> replaceConditionDetector(groupIndex, conditionIndex, ref));
         }
-        if (condition != null && !isTextCondition(type) && condition.detector() != null) {
-            section.getChildren().add(parametersForm.view(condition.detector(), ExtensionType.DETECTOR, ref -> replaceConditionDetector(groupIndex, conditionIndex, ref)));
-        }
+        addExtensionRow(identificationContent, "Matcher", extensionInput(conditionMatcherId, pickMatcher),
+            condition == null ? null : condition.matcher(), ExtensionType.MATCHER, ref -> replaceConditionMatcher(groupIndex, conditionIndex, ref));
+        addFormRow(identificationContent, "Expected Text", conditionExpectedText);
+        section.getChildren().add(titledPane("Identification", identificationContent));
 
         var searchRegionContent = new VBox(8);
         detachFromParent(drawSearchRegion);
@@ -345,27 +347,27 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         var regionActions = new VBox(6, drawSearchRegion, symmetricResize);
         searchRegionContent.getChildren().add(regionRowsWithActions(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight, regionActions));
         section.getChildren().add(titledPane("Search Region", searchRegionContent));
-        var addCondition = button("Add Condition", () -> {
+        var addCondition = iconButton("plus.svg", "Add condition", () -> {
             var newIndex = conditions(groupIndex).size();
             viewModel.addCondition(groupIndex, new ConditionDto("TEXT", viewModel.session().currentPage(), "", null, null, null));
             pendingSelection.accept("identification.group." + groupIndex + ".condition." + newIndex);
             refreshAll.run();
         });
-        var moveUp = button("Move Up", () -> {
+        var moveUp = iconButton("angle-up.svg", "Move condition up", () -> {
             if (conditionIndex > 0) {
                 viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex - 1);
                 pendingSelection.accept("identification.group." + groupIndex + ".condition." + (conditionIndex - 1));
                 refreshAll.run();
             }
         });
-        var moveDown = button("Move Down", () -> {
+        var moveDown = iconButton("angle-down.svg", "Move condition down", () -> {
             if (conditionIndex < conditions(groupIndex).size() - 1) {
                 viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex + 1);
                 pendingSelection.accept("identification.group." + groupIndex + ".condition." + (conditionIndex + 1));
                 refreshAll.run();
             }
         });
-        var remove = button("Remove Condition", () -> {
+        var remove = iconButton("eraser.svg", "Remove condition", () -> {
             viewModel.removeCondition(groupIndex, conditionIndex);
             pendingSelection.accept("identification.group." + groupIndex);
             refreshAll.run();
@@ -381,6 +383,42 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         return button;
     }
 
+    private Button iconButton(String iconName, String tooltip, Runnable action) {
+        var button = button("", action);
+        button.setGraphic(svgIcon(iconName));
+        button.setTooltip(new Tooltip(tooltip));
+        button.setMinSize(36, 32);
+        button.setPrefSize(36, 32);
+        button.setMaxSize(36, 32);
+        return button;
+    }
+
+    private SVGPath svgIcon(String iconName) {
+        var path = new SVGPath();
+        path.setContent(svgPathContent(iconName));
+        path.setFill(Color.web("#2f3742"));
+        path.setScaleX(0.032);
+        path.setScaleY(0.032);
+        return path;
+    }
+
+    private String svgPathContent(String iconName) {
+        var resource = "/icons/" + iconName;
+        try (var input = IdentificationPropertiesPanel.class.getResourceAsStream(resource)) {
+            if (input == null) {
+                throw new IllegalStateException("Missing icon resource: " + resource);
+            }
+            var svg = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            var matcher = Pattern.compile("<path\\s+[^>]*d=\"([^\"]+)\"").matcher(svg);
+            if (!matcher.find()) {
+                throw new IllegalStateException("Icon has no path data: " + resource);
+            }
+            return matcher.group(1);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Cannot read icon resource: " + resource, ex);
+        }
+    }
+
     private HBox extensionInput(TextField field, Button picker) {
         detachFromParent(field);
         detachFromParent(picker);
@@ -390,6 +428,31 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         var box = new HBox(6, field, picker);
         HBox.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
         return box;
+    }
+
+    private void addExtensionRow(VBox form, String labelText, Node input, ExtensionRefDto ref, ExtensionType type, Consumer<ExtensionRefDto> onChange) {
+        detachFromParent(input);
+        var label = new Label(labelText);
+        label.setStyle("-fx-text-fill: #111827;");
+        var field = new VBox(3, label, input);
+        field.setMaxWidth(Double.MAX_VALUE);
+        if (parametersForm.hasParameters(ref, type)) {
+            var parameters = parametersForm.inlineView(ref, type, onChange);
+            var indented = new HBox(8, parameterGuideLine(), parameters);
+            indented.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(parameters, Priority.ALWAYS);
+            field.getChildren().add(indented);
+        }
+        form.getChildren().add(field);
+    }
+
+    private Node parameterGuideLine() {
+        var line = new javafx.scene.layout.Region();
+        line.setMinWidth(2);
+        line.setPrefWidth(2);
+        line.setMaxWidth(2);
+        line.setStyle("-fx-background-color: #94a3b8;");
+        return line;
     }
 
     private void chooseExtension(ExtensionType type, TextField target) {
@@ -424,17 +487,35 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         }
         var type = nullToDefault(conditionType.getValue(), "TEXT");
         var textCondition = isTextCondition(type);
+        var detectorId = detectorIdForType(type);
+        var detector = textCondition
+            ? null
+            : extensionRef(detectorId == null ? conditionDetectorId.getText() : detectorId, selectedCondition() == null ? null : selectedCondition().detector());
         viewModel.replaceCondition(selected.groupIndex(), selected.conditionIndex(), new ConditionDto(
             type, parseInteger(conditionPage.getText()),
-            textCondition ? blankToNull(conditionExpectedText.getText()) : null,
-            textCondition ? extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()) : null,
-            textCondition ? null : extensionRef(conditionDetectorId.getText(), selectedCondition() == null ? null : selectedCondition().detector()),
+            blankToNull(conditionExpectedText.getText()),
+            extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()),
+            detector,
             conditionSearchRegion()));
         afterChange.run();
     }
 
     private boolean isTextCondition(String type) {
         return "TEXT".equals(type) || "TEXT_FUZZY".equals(type);
+    }
+
+    private boolean hasSingleDetectorOption(String type) {
+        return detectorIdForType(type) != null;
+    }
+
+    private String detectorIdForType(String type) {
+        if ("QR".equals(type) && extensionRegistry.find(new ExtensionId("qr")).isPresent()) {
+            return "qr";
+        }
+        if ("BARCODE".equals(type) && extensionRegistry.find(new ExtensionId("barcode")).isPresent()) {
+            return "barcode";
+        }
+        return null;
     }
 
     private boolean hasCompleteConditionSearchRegion() {

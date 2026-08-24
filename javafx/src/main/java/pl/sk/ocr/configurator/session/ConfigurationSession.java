@@ -56,7 +56,7 @@ public final class ConfigurationSession {
     public void replaceDraft(CategoryDto draftCategory) {
         this.draftCategory = draftCategory;
         this.dirty = true;
-        clearDownstreamCaches();
+        clearResultCaches();
     }
 
     public void openDraft(CategoryDto draftCategory) {
@@ -131,6 +131,10 @@ public final class ConfigurationSession {
 
     public void clearDownstreamCaches() {
         ocrCache.clear();
+        clearResultCaches();
+    }
+
+    public void clearResultCaches() {
         latestTrace = ProcessingTrace.off();
         latestFieldResult = null;
         latestDocumentResult = null;

@@ -11,15 +11,17 @@ import pl.sk.ocr.domain.ocr.OcrText;
 class ConfigurationSessionTest {
 
     @Test
-    void marksDirtyAndInvalidatesDownstreamCachesOnDraftChange() {
+    void marksDirtyAndKeepsOcrCacheOnDraftChange() {
         var session = new ConfigurationSession();
-        session.ocrCache().put(new PageNumber(1), new OcrText("old", List.of()));
+        var page = new PageNumber(1);
+        var ocr = new OcrText("old", List.of());
+        session.ocrCache().put(page, ocr);
         session.markSaved();
 
         session.replaceDraft(category("invoice"));
 
         assertThat(session.dirty()).isTrue();
-        assertThat(session.ocrCache()).isEmpty();
+        assertThat(session.ocrCache()).containsEntry(page, ocr);
     }
 
     @Test
