@@ -37,11 +37,26 @@ Aktualnie wystawione są:
 | `im-bilateral` | `ImageMagickLikeOps.bilateral` |
 | `im-kuwahara` | `ImageMagickLikeOps.kuwahara` |
 | `im-sobel` | `ImageMagickLikeOps.sobel` |
+| `im-rotate` | `ImageMagickLikeOps.rotate` |
+| `im-flip-vertical` | `ImageMagickLikeOps.flipVertical` |
+| `im-flop-horizontal` | `ImageMagickLikeOps.flopHorizontal` |
+| `im-transpose` | `ImageMagickLikeOps.transpose` |
+| `im-transverse` | `ImageMagickLikeOps.transverse` |
+| `im-crop` | `ImageMagickLikeOps.crop` |
+| `im-shave` | `ImageMagickLikeOps.shave` |
+| `im-extent` | `ImageMagickLikeOps.extent` |
+| `im-perspective` | `ImageMagickLikeOps.perspective` |
+| `im-trim` | `ImageMagickLikeOps.trim` |
+| `im-page-contour-crop` | `ImageMagickLikeOps.cropToPageContour` |
 | `im-deskew` | `ImageMagickLikeOps.deskew` |
 | `im-background-correct` | `ImageMagickLikeOps.correctBackground` |
 | `im-median` | `ImageMagickLikeOps.median3x3` |
 | `im-morphology` | `ImageMagickLikeOps.morphology` |
 | `im-remove-table-frames` | `ImageMagickLikeOps.removeTableFrames` |
+| `im-remove-small-components` | `ImageMagickLikeOps.removeSmallComponents` |
+| `im-negate` | `ImageMagickLikeOps.negate` |
+| `im-posterize` | `ImageMagickLikeOps.posterize` |
+| `im-strip-metadata` | `ImageMagickLikeOps.stripMetadata` |
 
 ## 3. Brakujące rozszerzenia
 
@@ -59,28 +74,11 @@ Status: zaimplementowane.
 
 ### 3.4. Geometria
 
-| Proponowane ID | Metoda biblioteki | Priorytet |
-| --- | --- | --- |
-| `im-rotate` | `rotate` | P2 |
-| `im-flip-vertical` | `flipVertical` | P3 |
-| `im-flop-horizontal` | `flopHorizontal` | P3 |
-| `im-transpose` | `transpose` | P3 |
-| `im-transverse` | `transverse` | P3 |
-| `im-crop` | `crop` | P2 |
-| `im-shave` | `shave` | P3 |
-| `im-extent` | `extent` | P3 |
-| `im-perspective` | `perspective` | P2 |
-| `im-trim` | `trim` | P1 |
-| `im-page-contour-crop` | `cropToPageContour` | P1 |
+Status: zaimplementowane.
 
 ### 3.5. Czyszczenie i kolor
 
-| Proponowane ID | Metoda biblioteki | Priorytet |
-| --- | --- | --- |
-| `im-remove-small-components` | `removeSmallComponents` | P1 |
-| `im-negate` | `negate` | P3 |
-| `im-posterize` | `posterize` | P3 |
-| `im-strip-metadata` | `stripMetadata` | P3 |
+Status: zaimplementowane.
 
 ### 3.6. Diagnostyka
 

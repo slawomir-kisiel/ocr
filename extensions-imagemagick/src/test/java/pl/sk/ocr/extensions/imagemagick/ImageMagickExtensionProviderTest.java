@@ -45,6 +45,21 @@ class ImageMagickExtensionProviderTest {
                 "im-bilateral",
                 "im-kuwahara",
                 "im-sobel",
+                "im-rotate",
+                "im-flip-vertical",
+                "im-flop-horizontal",
+                "im-transpose",
+                "im-transverse",
+                "im-crop",
+                "im-shave",
+                "im-extent",
+                "im-perspective",
+                "im-trim",
+                "im-page-contour-crop",
+                "im-remove-small-components",
+                "im-negate",
+                "im-posterize",
+                "im-strip-metadata",
                 "im-deskew",
                 "im-background-correct",
                 "im-median",
@@ -139,6 +154,39 @@ class ImageMagickExtensionProviderTest {
         );
 
         assertProcessorsReturnNewSameSizeImages(input, processors);
+    }
+
+    @Test
+    void geometryProcessorsReturnProcessedImages() {
+        var input = gradientImage();
+        assertProcessorsReturnNewSameSizeImages(input, java.util.List.of(
+            new RotateImageProcessor(),
+            new FlipVerticalImageProcessor(),
+            new FlopHorizontalImageProcessor(),
+            new ExtentImageProcessor(),
+            new PerspectiveImageProcessor(),
+            new TrimImageProcessor(),
+            new PageContourCropImageProcessor()
+        ));
+
+        assertThat(processorOutput(new TransposeImageProcessor(), input).width()).isEqualTo(input.getHeight());
+        assertThat(processorOutput(new TransposeImageProcessor(), input).height()).isEqualTo(input.getWidth());
+        assertThat(processorOutput(new TransverseImageProcessor(), input).width()).isEqualTo(input.getHeight());
+        assertThat(processorOutput(new TransverseImageProcessor(), input).height()).isEqualTo(input.getWidth());
+        assertThat(processorOutput(new CropImageProcessor(), input, Map.of("x", 2, "y", 3, "width", 10, "height", 12)).width()).isEqualTo(10);
+        assertThat(processorOutput(new ShaveImageProcessor(), input, Map.of("left", 1, "top", 2, "right", 3, "bottom", 4)).width())
+            .isEqualTo(input.getWidth() - 4);
+    }
+
+    @Test
+    void cleanupAndColorProcessorsReturnProcessedImages() {
+        var input = gradientImage();
+        assertProcessorsReturnNewSameSizeImages(input, java.util.List.of(
+            new RemoveSmallComponentsImageProcessor(),
+            new NegateImageProcessor(),
+            new PosterizeImageProcessor(),
+            new StripMetadataImageProcessor()
+        ));
     }
 
     @Test
@@ -249,15 +297,24 @@ class ImageMagickExtensionProviderTest {
 
     private static void assertProcessorsReturnNewSameSizeImages(BufferedImage input, java.util.List<? extends ImageProcessor> processors) {
         for (ImageProcessor processor : processors) {
-            var output = processor.process(
-                new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.empty()),
-                noopContext()
-            );
+            var output = processorOutput(processor, input);
 
             assertThat(output.width()).as(processor.descriptor().id().value()).isEqualTo(input.getWidth());
             assertThat(output.height()).as(processor.descriptor().id().value()).isEqualTo(input.getHeight());
             assertThat(output.asBufferedImage()).as(processor.descriptor().id().value()).isNotSameAs(input);
         }
+    }
+
+    private static pl.sk.ocr.extension.api.image.ProcessingImage processorOutput(ImageProcessor processor, BufferedImage input) {
+        return processorOutput(processor, input, Map.of());
+    }
+
+    private static pl.sk.ocr.extension.api.image.ProcessingImage processorOutput(ImageProcessor processor, BufferedImage input,
+                                                                                Map<String, Object> parameters) {
+        return processor.process(
+            new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.of(parameters)),
+            noopContext()
+        );
     }
 
     private static int luminance(int argb) {
