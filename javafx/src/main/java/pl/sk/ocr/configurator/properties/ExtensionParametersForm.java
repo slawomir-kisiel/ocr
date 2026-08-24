@@ -30,7 +30,7 @@ final class ExtensionParametersForm {
     }
 
     Node view(ExtensionRefDto ref, ExtensionType expectedType, Consumer<ExtensionRefDto> onChange) {
-        var content = new VBox(8);
+        var content = new VBox(4);
         if (ref == null || ref.id() == null || ref.id().isBlank()) {
             content.getChildren().add(message("Choose an extension to edit parameters."));
             return titledPane("Parameters", content);
@@ -72,6 +72,8 @@ final class ExtensionParametersForm {
         var error = new Label();
         error.setStyle(ERROR_STYLE);
         error.setWrapText(true);
+        error.managedProperty().bind(error.textProperty().isNotEmpty());
+        error.visibleProperty().bind(error.textProperty().isNotEmpty());
         var control = control(parameter, values.getOrDefault(parameter.name(), parameter.defaultValue()), value -> {
             if (value == null) {
                 values.remove(parameter.name());

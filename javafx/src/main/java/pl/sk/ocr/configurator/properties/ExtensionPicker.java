@@ -8,6 +8,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.extension.api.ExtensionDescriptor;
@@ -33,7 +34,10 @@ final class ExtensionPicker {
         var dialog = new Dialog<ExtensionOption>();
         dialog.setTitle("Select Extension");
         dialog.setHeaderText(type.name());
+        dialog.setResizable(true);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        dialog.getDialogPane().setPrefSize(920, 620);
+        dialog.getDialogPane().setMinSize(640, 420);
 
         var list = new ListView<ExtensionOption>();
         list.getItems().setAll(options(type, currentId));
@@ -45,8 +49,14 @@ final class ExtensionPicker {
             }
         });
         selectCurrent(list, currentId);
-        list.setPrefHeight(260);
-        dialog.getDialogPane().setContent(new VBox(8, new Label("Available extensions"), list));
+        list.setPrefHeight(500);
+        list.setMaxWidth(Double.MAX_VALUE);
+        list.setMaxHeight(Double.MAX_VALUE);
+        VBox.setVgrow(list, Priority.ALWAYS);
+        var content = new VBox(8, new Label("Available extensions"), list);
+        content.setMaxWidth(Double.MAX_VALUE);
+        content.setMaxHeight(Double.MAX_VALUE);
+        dialog.getDialogPane().setContent(content);
         var okButton = dialog.getDialogPane().lookupButton(ButtonType.OK);
         okButton.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
         dialog.setResultConverter(button -> button == ButtonType.OK ? list.getSelectionModel().getSelectedItem() : null);

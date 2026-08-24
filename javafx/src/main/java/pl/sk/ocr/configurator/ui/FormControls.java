@@ -60,7 +60,7 @@ public final class FormControls {
         }
         label.setMaxWidth(Double.MAX_VALUE);
         label.setStyle(TEXT_COLOR_STYLE);
-        field.setSpacing(2);
+        field.setSpacing(1);
         field.getChildren().setAll(label, control);
         field.setMaxWidth(Double.MAX_VALUE);
         form.getChildren().add(field);

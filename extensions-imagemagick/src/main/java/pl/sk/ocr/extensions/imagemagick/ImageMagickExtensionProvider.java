@@ -10,6 +10,7 @@ public final class ImageMagickExtensionProvider implements ExtensionProvider {
     public Collection<? extends Extension> extensions() {
         return List.of(
             new ProfileImageProcessor(),
+            new GrayscaleImageProcessor(),
             new NormalizeImageProcessor(),
             new AutoThresholdImageProcessor(),
             new AdaptiveThresholdImageProcessor(),

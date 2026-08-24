@@ -21,6 +21,7 @@ class ImageMagickExtensionProviderTest {
             .extracting(extension -> extension.descriptor().id().value())
             .contains(
                 "im-profile",
+                "im-grayscale",
                 "im-normalize",
                 "im-auto-threshold",
                 "im-adaptive-threshold",
@@ -44,6 +45,23 @@ class ImageMagickExtensionProviderTest {
 
         assertThat(output.width()).isEqualTo(input.getWidth());
         assertThat(output.height()).isEqualTo(input.getHeight());
+        assertThat(output.asBufferedImage()).isNotSameAs(input);
+    }
+
+    @Test
+    void grayscaleConvertsColorPixelsToEqualRgbChannels() {
+        var processor = new GrayscaleImageProcessor();
+        var input = new BufferedImage(2, 1, BufferedImage.TYPE_INT_ARGB);
+        input.setRGB(0, 0, new Color(200, 40, 20).getRGB());
+        input.setRGB(1, 0, new Color(10, 150, 70).getRGB());
+
+        var output = processor.process(
+            new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.empty()),
+            noopContext()
+        );
+
+        assertGray(output.asBufferedImage().getRGB(0, 0));
+        assertGray(output.asBufferedImage().getRGB(1, 0));
         assertThat(output.asBufferedImage()).isNotSameAs(input);
     }
 
@@ -145,5 +163,12 @@ class ImageMagickExtensionProviderTest {
         var green = (argb >>> 8) & 0xff;
         var blue = argb & 0xff;
         return (int) Math.round(0.2126d * red + 0.7152d * green + 0.0722d * blue);
+    }
+
+    private static void assertGray(int argb) {
+        var red = (argb >>> 16) & 0xff;
+        var green = (argb >>> 8) & 0xff;
+        var blue = argb & 0xff;
+        assertThat(red).isEqualTo(green).isEqualTo(blue);
     }
 }

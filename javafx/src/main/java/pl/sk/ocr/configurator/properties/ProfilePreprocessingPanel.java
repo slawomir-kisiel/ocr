@@ -14,7 +14,9 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.Priority;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import javafx.scene.layout.HBox;
@@ -36,7 +38,7 @@ public final class ProfilePreprocessingPanel {
     private final ExtensionRegistry extensionRegistry;
     private final Function<Integer, ProcessingImage> debugSourceImage;
     private final ListView<ExtensionRefDto> steps = new ListView<>();
-    private final VBox parameters = new VBox(8);
+    private final VBox parameters = new VBox(4);
 
     public ProfilePreprocessingPanel(Supplier<ProfileDto> profile, Consumer<ProfileDto> updateProfile,
                                      Runnable afterChange, Runnable applyPreprocessing,
@@ -63,9 +65,15 @@ public final class ProfilePreprocessingPanel {
         var remove = iconButton("eraser.svg", "Usuń", this::removeSelected);
         var apply = button("Apply preprocessing", applyPreprocessing);
         var actions = new HBox(6, add, choose, duplicate, moveUp, moveDown, debug, remove);
-        var content = new VBox(8, new Label("Workspace image processors"), steps, actions, parameters, apply);
+        var content = new VBox(6, new Label("Workspace image processors"), steps, actions, parameters, apply);
         content.setPadding(new javafx.geometry.Insets(8));
-        return titledPane("Preprocessing", content);
+        var scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+        return titledPane("Preprocessing", scroll);
     }
 
     public void refresh() {
