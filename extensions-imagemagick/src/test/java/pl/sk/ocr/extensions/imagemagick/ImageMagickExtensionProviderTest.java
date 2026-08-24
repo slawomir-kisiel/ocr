@@ -31,8 +31,20 @@ class ImageMagickExtensionProviderTest {
                 "im-clahe",
                 "im-local-contrast",
                 "im-white-balance",
+                "im-threshold",
+                "im-black-threshold",
+                "im-white-threshold",
+                "im-range-threshold",
+                "im-hsv-threshold",
                 "im-auto-threshold",
                 "im-adaptive-threshold",
+                "im-box-blur",
+                "im-gaussian-blur",
+                "im-sharpen",
+                "im-unsharp",
+                "im-bilateral",
+                "im-kuwahara",
+                "im-sobel",
                 "im-deskew",
                 "im-background-correct",
                 "im-median",
@@ -97,6 +109,36 @@ class ImageMagickExtensionProviderTest {
             assertThat(output.height()).as(processor.descriptor().id().value()).isEqualTo(input.getHeight());
             assertThat(output.asBufferedImage()).as(processor.descriptor().id().value()).isNotSameAs(input);
         }
+    }
+
+    @Test
+    void thresholdProcessorsReturnProcessedImages() {
+        var input = gradientImage();
+        var processors = java.util.List.of(
+            new ThresholdImageProcessor(),
+            new BlackThresholdImageProcessor(),
+            new WhiteThresholdImageProcessor(),
+            new RangeThresholdImageProcessor(),
+            new HsvThresholdImageProcessor()
+        );
+
+        assertProcessorsReturnNewSameSizeImages(input, processors);
+    }
+
+    @Test
+    void filterProcessorsReturnProcessedImages() {
+        var input = gradientImage();
+        var processors = java.util.List.of(
+            new BoxBlurImageProcessor(),
+            new GaussianBlurImageProcessor(),
+            new SharpenImageProcessor(),
+            new UnsharpImageProcessor(),
+            new BilateralImageProcessor(),
+            new KuwaharaImageProcessor(),
+            new SobelImageProcessor()
+        );
+
+        assertProcessorsReturnNewSameSizeImages(input, processors);
     }
 
     @Test
@@ -203,6 +245,19 @@ class ImageMagickExtensionProviderTest {
             }
         }
         return image;
+    }
+
+    private static void assertProcessorsReturnNewSameSizeImages(BufferedImage input, java.util.List<? extends ImageProcessor> processors) {
+        for (ImageProcessor processor : processors) {
+            var output = processor.process(
+                new ImageProcessingRequest(new ImageMagickProcessingImage(input), ExtensionParameters.empty()),
+                noopContext()
+            );
+
+            assertThat(output.width()).as(processor.descriptor().id().value()).isEqualTo(input.getWidth());
+            assertThat(output.height()).as(processor.descriptor().id().value()).isEqualTo(input.getHeight());
+            assertThat(output.asBufferedImage()).as(processor.descriptor().id().value()).isNotSameAs(input);
+        }
     }
 
     private static int luminance(int argb) {

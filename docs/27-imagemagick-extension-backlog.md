@@ -23,8 +23,20 @@ Aktualnie wystawione są:
 | `im-clahe` | `ImageMagickLikeOps.clahe` |
 | `im-local-contrast` | `ImageMagickLikeOps.localContrast` |
 | `im-white-balance` | `ImageMagickLikeOps.grayWorldWhiteBalance` |
+| `im-threshold` | `ImageMagickLikeOps.threshold` |
+| `im-black-threshold` | `ImageMagickLikeOps.blackThreshold` |
+| `im-white-threshold` | `ImageMagickLikeOps.whiteThreshold` |
+| `im-range-threshold` | `ImageMagickLikeOps.rangeThreshold` |
+| `im-hsv-threshold` | `ImageMagickLikeOps.hsvThreshold` |
 | `im-auto-threshold` | `ImageMagickLikeOps.autoThreshold` |
 | `im-adaptive-threshold` | `ImageMagickLikeOps.adaptiveThreshold` |
+| `im-box-blur` | `ImageMagickLikeOps.boxBlur` |
+| `im-gaussian-blur` | `ImageMagickLikeOps.gaussianBlur` |
+| `im-sharpen` | `ImageMagickLikeOps.sharpen` |
+| `im-unsharp` | `ImageMagickLikeOps.unsharp` |
+| `im-bilateral` | `ImageMagickLikeOps.bilateral` |
+| `im-kuwahara` | `ImageMagickLikeOps.kuwahara` |
+| `im-sobel` | `ImageMagickLikeOps.sobel` |
 | `im-deskew` | `ImageMagickLikeOps.deskew` |
 | `im-background-correct` | `ImageMagickLikeOps.correctBackground` |
 | `im-median` | `ImageMagickLikeOps.median3x3` |
@@ -39,25 +51,11 @@ Status: zaimplementowane.
 
 ### 3.2. Progowanie
 
-| Proponowane ID | Metoda biblioteki | Priorytet |
-| --- | --- | --- |
-| `im-threshold` | `threshold` | P1 |
-| `im-black-threshold` | `blackThreshold` | P2 |
-| `im-white-threshold` | `whiteThreshold` | P2 |
-| `im-range-threshold` | `rangeThreshold` | P2 |
-| `im-hsv-threshold` | `hsvThreshold` | P2 |
+Status: zaimplementowane.
 
 ### 3.3. Filtry
 
-| Proponowane ID | Metoda biblioteki | Priorytet |
-| --- | --- | --- |
-| `im-box-blur` | `boxBlur` | P3 |
-| `im-gaussian-blur` | `gaussianBlur` | P3 |
-| `im-sharpen` | `sharpen` | P2 |
-| `im-unsharp` | `unsharp` | P1 |
-| `im-bilateral` | `bilateral` | P2 |
-| `im-kuwahara` | `kuwahara` | P3 |
-| `im-sobel` | `sobel` | P1 |
+Status: zaimplementowane.
 
 ### 3.4. Geometria
 
