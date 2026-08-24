@@ -48,12 +48,12 @@ public final class AnchorDetectionService {
         if (pageImage == null || anchor.detector() == null) {
             return Optional.empty();
         }
+        if ("text".equals(anchor.detector().id().value())) {
+            return matchingRegion(anchor, ocrInRegion(pageOcr, anchor.searchRegion()))
+                .map(match -> new ReferenceFeature(anchor.id(), match.region(), match.score()));
+        }
         var extension = extensionRegistry.find(anchor.detector().id());
         if (extension.isEmpty() || !(extension.get() instanceof Detector detector)) {
-            if ("text".equals(anchor.detector().id().value())) {
-                return matchingRegion(anchor, pageOcr)
-                    .map(match -> new ReferenceFeature(anchor.id(), match.region(), match.score()));
-            }
             return Optional.empty();
         }
         try {
@@ -79,6 +79,22 @@ public final class AnchorDetectionService {
                 || searchRegion.contains(word.boundingBox().region().bottomRight()))
             .map(pl.sk.ocr.domain.ocr.OcrWord::text)
             .reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+    }
+
+    private OcrText ocrInRegion(OcrText pageOcr, Region searchRegion) {
+        if (pageOcr == null) {
+            return new OcrText("", List.of());
+        }
+        if (searchRegion == null) {
+            return pageOcr;
+        }
+        var words = pageOcr.words().stream()
+            .filter(word -> searchRegion.contains(word.boundingBox().region().topLeft())
+                || searchRegion.contains(word.boundingBox().region().bottomRight()))
+            .toList();
+        return new OcrText(words.stream()
+            .map(pl.sk.ocr.domain.ocr.OcrWord::text)
+            .reduce("", (left, right) -> left.isBlank() ? right : left + " " + right), words);
     }
 
     private Optional<AnchorMatch> matchingRegion(AnchorDefinition anchor, OcrText text) {

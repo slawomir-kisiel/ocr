@@ -7,6 +7,7 @@ import pl.sk.ocr.config.runtime.FieldDefinition;
 import pl.sk.ocr.core.image.BufferedProcessingImage;
 import pl.sk.ocr.core.ocr.OcrEngine;
 import pl.sk.ocr.core.ocr.OcrOptions;
+import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.geometry.Transform;
 import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.issue.ErrorScope;
@@ -62,8 +63,10 @@ public final class FieldProcessingService {
     public FieldResult extract(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
         var issues = new ArrayList<ProcessingIssue>();
         ProcessingImage currentImage;
+        Region resolvedRegion;
         try {
-            currentImage = crop(pageImage, field, transform);
+            resolvedRegion = transform.map(field.region());
+            currentImage = crop(pageImage, resolvedRegion);
         } catch (RuntimeException e) {
             return failed(field, issues, "FIELD_REGION_OUT_OF_BOUNDS", ProcessingStage.FIELD_REGION_RESOLUTION, e);
         }
@@ -75,7 +78,7 @@ public final class FieldProcessingService {
                     () -> TraceSink.NOOP
                 );
             } catch (RuntimeException e) {
-                return failed(field, issues, "FIELD_IMAGE_PROCESSING_FAILED", ProcessingStage.IMAGE_PROCESSING, e);
+                return failed(field, issues, "FIELD_IMAGE_PROCESSING_FAILED", ProcessingStage.IMAGE_PROCESSING, e, resolvedRegion);
             }
         }
 
@@ -83,14 +86,14 @@ public final class FieldProcessingService {
         try {
             value = ocrEngine.recognize(currentImage, options(field.ocr())).value();
         } catch (RuntimeException e) {
-            return failed(field, issues, "FIELD_OCR_FAILED", ProcessingStage.FIELD_OCR, e);
+            return failed(field, issues, "FIELD_OCR_FAILED", ProcessingStage.FIELD_OCR, e, resolvedRegion);
         }
 
         for (ExtensionRef transformerRef : field.transformers()) {
             try {
                 value = transform(value, transformerRef);
             } catch (RuntimeException e) {
-                return failed(field, issues, "FIELD_VALUE_TRANSFORMATION_FAILED", ProcessingStage.VALUE_TRANSFORMATION, e);
+                return failed(field, issues, "FIELD_VALUE_TRANSFORMATION_FAILED", ProcessingStage.VALUE_TRANSFORMATION, e, resolvedRegion);
             }
         }
 
@@ -116,11 +119,14 @@ public final class FieldProcessingService {
         var status = ProcessingStatus.aggregate(issues.stream()
             .map(issue -> issue.severity() == Severity.WARNING ? ProcessingStatus.WARNING : ProcessingStatus.FAILED)
             .toList());
-        return new FieldResult(field.id(), value, status, issues);
+        return new FieldResult(field.id(), value, status, issues, resolvedRegion);
     }
 
     private ProcessingImage crop(ProcessingImage image, FieldDefinition field, Transform transform) {
-        var resolvedRegion = transform.map(field.region());
+        return crop(image, transform.map(field.region()));
+    }
+
+    private ProcessingImage crop(ProcessingImage image, Region resolvedRegion) {
         if (image instanceof BufferedProcessingImage buffered) {
             return buffered.crop(resolvedRegion);
         }
@@ -165,8 +171,13 @@ public final class FieldProcessingService {
     }
 
     private FieldResult failed(FieldDefinition field, List<ProcessingIssue> issues, String code, ProcessingStage stage, RuntimeException e) {
+        return failed(field, issues, code, stage, e, null);
+    }
+
+    private FieldResult failed(FieldDefinition field, List<ProcessingIssue> issues, String code, ProcessingStage stage, RuntimeException e,
+                               Region resolvedRegion) {
         issues.add(issue(code, field.required() ? Severity.ERROR : Severity.WARNING, stage, message(e)));
-        return new FieldResult(field.id(), null, field.required() ? ProcessingStatus.FAILED : ProcessingStatus.WARNING, issues);
+        return new FieldResult(field.id(), null, field.required() ? ProcessingStatus.FAILED : ProcessingStatus.WARNING, issues, resolvedRegion);
     }
 
     private ProcessingIssue issue(String code, Severity severity, ProcessingStage stage, String message) {

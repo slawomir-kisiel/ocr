@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.List;
+import java.util.Map;
 import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
 import pl.sk.ocr.config.runtime.IdentificationCondition;
 import pl.sk.ocr.config.runtime.ProcessingMode;
@@ -12,7 +13,9 @@ import pl.sk.ocr.core.document.DocumentReader;
 import pl.sk.ocr.core.document.RenderOptions;
 import pl.sk.ocr.core.geometry.AnchorDetectionService;
 import pl.sk.ocr.core.geometry.GeometryNormalizationService;
+import pl.sk.ocr.core.geometry.GeometryNormalizationResult;
 import pl.sk.ocr.core.geometry.GeometryStatus;
+import pl.sk.ocr.core.geometry.ReferenceFeature;
 import pl.sk.ocr.core.image.BufferedProcessingImage;
 import pl.sk.ocr.core.image.DocumentImagePreprocessingService;
 import pl.sk.ocr.core.identification.CategoryIdentificationService;
@@ -108,6 +111,8 @@ public final class DocumentProcessor {
             }
             var referenceFeatures = anchorDetectionService.detect(category, pageOcr, firstPage);
             var geometry = geometryNormalizationService.normalize(category, referenceFeatures);
+            traceEntries.addAll(anchorTrace(category, referenceFeatures));
+            traceEntries.add(geometryTrace(category, geometry, referenceFeatures));
             if (geometry.status() == GeometryStatus.FAILED) {
                 var issue = ProcessingIssue.error(
                     new IssueCode("GEOMETRY_RESOLUTION_FAILED"),
@@ -152,7 +157,64 @@ public final class DocumentProcessor {
             return ProcessingTrace.off();
         }
         var status = issues == null || issues.isEmpty() ? ProcessingStatus.SUCCESS : ProcessingStatus.FAILED;
-        return new ProcessingTrace(mode, List.of(new StageResult(ProcessingStage.CATEGORY_IDENTIFICATION, status, issues)), entries);
+        return new ProcessingTrace(mode, traceStages(entries, status, issues), entries);
+    }
+
+    private List<StageResult> traceStages(List<TraceEntry> entries, ProcessingStatus status, List<ProcessingIssue> issues) {
+        var stages = new ArrayList<StageResult>();
+        stages.add(new StageResult(ProcessingStage.CATEGORY_IDENTIFICATION, status, issues));
+        if (entries.stream().anyMatch(entry -> entry.stage() == ProcessingStage.ANCHOR_DETECTION)) {
+            stages.add(new StageResult(ProcessingStage.ANCHOR_DETECTION, status, List.of()));
+        }
+        if (entries.stream().anyMatch(entry -> entry.stage() == ProcessingStage.GEOMETRY_RESOLUTION)) {
+            stages.add(new StageResult(ProcessingStage.GEOMETRY_RESOLUTION, status, issues == null ? List.of() : issues.stream()
+                .filter(issue -> issue.stage() == ProcessingStage.GEOMETRY_RESOLUTION)
+                .toList()));
+        }
+        return stages;
+    }
+
+    private List<TraceEntry> anchorTrace(CategoryRuntimeConfiguration category, List<ReferenceFeature> referenceFeatures) {
+        return referenceFeatures.stream()
+            .map(feature -> {
+                var attributes = new java.util.LinkedHashMap<String, Object>();
+                attributes.put("categoryId", category.id().value());
+                attributes.put("anchorId", feature.anchorId().value());
+                attributes.put("confidence", feature.confidence());
+                putRegion(attributes, "detected", feature.bounds());
+                return new TraceEntry(
+                    ProcessingStage.ANCHOR_DETECTION,
+                    "Anchor detected: " + feature.anchorId().value(),
+                    attributes,
+                    List.of()
+                );
+            })
+            .toList();
+    }
+
+    private TraceEntry geometryTrace(CategoryRuntimeConfiguration category, GeometryNormalizationResult geometry,
+                                     List<ReferenceFeature> referenceFeatures) {
+        var attributes = new java.util.LinkedHashMap<String, Object>();
+        attributes.put("categoryId", category.id().value());
+        attributes.put("status", geometry.status().name());
+        attributes.put("usedAnchors", geometry.usedAnchors().stream().map(anchor -> anchor.value()).toList());
+        attributes.put("scaleX", geometry.transform().scale().x());
+        attributes.put("scaleY", geometry.transform().scale().y());
+        attributes.put("translateX", geometry.transform().translateX());
+        attributes.put("translateY", geometry.transform().translateY());
+        attributes.put("detectedAnchors", referenceFeatures.stream()
+            .map(feature -> Map.of(
+                "anchorId", feature.anchorId().value(),
+                "confidence", feature.confidence(),
+                "bounds", regionMap(feature.bounds())
+            ))
+            .toList());
+        return new TraceEntry(
+            ProcessingStage.GEOMETRY_RESOLUTION,
+            "Geometry " + geometry.status(),
+            attributes,
+            List.of()
+        );
     }
 
     private List<TraceEntry> identificationTrace(List<CategoryRuntimeConfiguration> categories, pl.sk.ocr.domain.ocr.OcrText pageOcr,
@@ -270,6 +332,28 @@ public final class DocumentProcessor {
             return "whole page";
         }
         return "x=" + region.x() + ", y=" + region.y() + ", width=" + region.width() + ", height=" + region.height();
+    }
+
+    private void putRegion(Map<String, Object> attributes, String prefix, Region region) {
+        if (region == null) {
+            return;
+        }
+        attributes.put(prefix + "X", region.x());
+        attributes.put(prefix + "Y", region.y());
+        attributes.put(prefix + "Width", region.width());
+        attributes.put(prefix + "Height", region.height());
+    }
+
+    private Map<String, Object> regionMap(Region region) {
+        if (region == null) {
+            return Map.of();
+        }
+        return Map.of(
+            "x", region.x(),
+            "y", region.y(),
+            "width", region.width(),
+            "height", region.height()
+        );
     }
 
     private static String normalize(String value) {

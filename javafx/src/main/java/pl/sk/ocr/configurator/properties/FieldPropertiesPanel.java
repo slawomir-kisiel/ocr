@@ -7,6 +7,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
@@ -15,6 +16,7 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.FieldDto;
@@ -219,23 +221,58 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             var step = steps.get(i);
             var selectedStep = selected.type() == SelectionType.PIPELINE_STEP && selected.stepIndex() == stepIndex;
             var label = textLabel(step == null ? "" : nullToEmpty(step.id()));
-            var choose = button("Choose", () -> choosePipelineStep(pipeline, selected.fieldIndex(), stepIndex, step == null ? null : step.id()));
-            var duplicate = button("Duplicate", () -> duplicatePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
-            var moveUp = button("Move Up", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
-            var moveDown = button("Move Down", () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
-            var debug = button("Debug", () -> debugImageProcessorStep(selected.fieldIndex(), stepIndex));
-            var remove = button("Remove", () -> removePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
+            label.setCursor(Cursor.HAND);
+            label.setTooltip(new Tooltip("Select " + pipeline.singular()));
+            label.setMinWidth(160);
+            label.setOnMouseClicked(event -> selectPipelineStep(pipeline, selected.fieldIndex(), stepIndex));
+            var choose = iconButton("edit.svg", "Choose " + pipeline.singular(), () -> choosePipelineStep(pipeline, selected.fieldIndex(), stepIndex,
+                step == null ? null : step.id()));
+            var duplicate = iconButton("copy.svg", "Duplicate " + pipeline.singular(), () -> duplicatePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
+            var moveUp = iconButton("angle-up.svg", "Move " + pipeline.singular() + " up",
+                () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex - 1));
+            var moveDown = iconButton("angle-down.svg", "Move " + pipeline.singular() + " down",
+                () -> movePipelineStep(pipeline, selected.fieldIndex(), stepIndex, stepIndex + 1));
+            var debug = iconButton("debug.svg", "Debug image processor", () -> debugImageProcessorStep(selected.fieldIndex(), stepIndex));
+            var remove = iconButton("eraser.svg", "Remove " + pipeline.singular(), () -> removePipelineStep(pipeline, selected.fieldIndex(), stepIndex));
             moveUp.setDisable(stepIndex <= 0);
             moveDown.setDisable(stepIndex >= steps.size() - 1);
             debug.setDisable(pipeline != Pipeline.IMAGE_PROCESSORS);
             var row = new HBox(8, label, choose, duplicate, moveUp, moveDown, debug, remove);
             row.setStyle(selectedStep ? "-fx-background-color: #dbeafe; -fx-border-color: #1f7aec; -fx-border-radius: 4; -fx-padding: 4;" : "-fx-padding: 4;");
             section.getChildren().add(row);
-            if (selectedStep && step != null) {
-                section.getChildren().add(parametersForm.view(step, pipeline.extensionType(), ref -> replacePipelineStep(pipeline, selected.fieldIndex(), stepIndex, ref)));
+            if (selectedStep && step != null && parametersForm.hasParameters(step, pipeline.extensionType())) {
+                section.getChildren().add(indentedParameters(step, pipeline.extensionType(),
+                    ref -> replacePipelineStep(pipeline, selected.fieldIndex(), stepIndex, ref)));
             }
         }
-        section.getChildren().add(button("Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
+        section.getChildren().add(iconButton("plus.svg", "Add " + pipeline.singular(), () -> addPipelineStep(pipeline, selected.fieldIndex())));
+    }
+
+    private Node indentedParameters(ExtensionRefDto ref, ExtensionType type, Consumer<ExtensionRefDto> onChange) {
+        var parameters = parametersForm.inlineView(ref, type, onChange);
+        var box = new HBox(8, parameterGuideLine(), parameters);
+        box.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(parameters, Priority.ALWAYS);
+        return box;
+    }
+
+    private Node parameterGuideLine() {
+        var line = new javafx.scene.layout.Region();
+        line.setMinWidth(2);
+        line.setPrefWidth(2);
+        line.setMaxWidth(2);
+        line.setStyle("-fx-background-color: #94a3b8;");
+        return line;
+    }
+
+    private Button iconButton(String iconName, String tooltip, Runnable action) {
+        var button = button("", action);
+        button.setGraphic(iconFactory.apply(iconName));
+        button.setTooltip(new Tooltip(tooltip));
+        button.setMinSize(36, 32);
+        button.setPrefSize(36, 32);
+        button.setMaxSize(36, 32);
+        return button;
     }
 
     private void debugImageProcessorStep(int fieldIndex, int stepIndex) {
@@ -246,6 +283,11 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         var source = imageProcessorDebugSource == null ? null : imageProcessorDebugSource.apply(fieldIndex, stepIndex);
         new ImageProcessorDebugDialog(extensionRegistry).show(Pipeline.IMAGE_PROCESSORS.steps(field).get(stepIndex), source)
             .ifPresent(ref -> replacePipelineStep(Pipeline.IMAGE_PROCESSORS, fieldIndex, stepIndex, ref));
+    }
+
+    private void selectPipelineStep(Pipeline pipeline, int fieldIndex, int stepIndex) {
+        pendingSelection.accept(pipeline.nodeId(fieldIndex, stepIndex));
+        refreshAll.run();
     }
 
     private Label textLabel(String text) {

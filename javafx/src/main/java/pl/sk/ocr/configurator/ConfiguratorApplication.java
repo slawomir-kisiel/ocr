@@ -101,6 +101,7 @@ import pl.sk.ocr.domain.ocr.OcrLine;
 import pl.sk.ocr.domain.ocr.OcrParagraph;
 import pl.sk.ocr.domain.ocr.OcrWord;
 import pl.sk.ocr.domain.result.DocumentResult;
+import pl.sk.ocr.domain.result.FieldResult;
 import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.domain.result.StageResult;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
@@ -153,6 +154,8 @@ public final class ConfiguratorApplication extends Application {
     private boolean layerCurrentSelection = true;
     private boolean layerDiagnostics;
     private OcrExplorerRow selectedOcrExplorerRow;
+    private FieldResult selectedFieldResult;
+    private pl.sk.ocr.domain.geometry.Region selectedAnchorTraceRegion;
     private String pendingTreeSelectionId;
     private GeometryPropertiesPanel geometryPropertiesPanel;
     private AnchorPropertiesPanel anchorPropertiesPanel;
@@ -211,7 +214,8 @@ public final class ConfiguratorApplication extends Application {
         traceViewerPanel = new TraceViewerPanel(this::activeTrace, this::activeTraceImageStore);
         fieldResultPanel = new FieldResultPanel(() -> viewModel.session().latestFieldResult(), () -> viewModel.session().latestTrace());
         categoryTestResultPanel = new CategoryTestResultPanel(() -> viewModel.session().latestDocumentResult(),
-            () -> viewModel.session().latestCategoryTestResults(), this::selectReferenceDocumentTestResult);
+            () -> viewModel.session().latestCategoryTestResults(), this::selectReferenceDocumentTestResult, this::selectFieldResult,
+            this::selectAnchorTraceRegion);
         stage.setTitle("OCR Configurator");
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
@@ -1775,7 +1779,8 @@ public final class ConfiguratorApplication extends Application {
             return null;
         }
         var pageNumber = new PageNumber(field.page() == null ? viewModel.session().currentPage() : field.page());
-        var source = viewModel.session().pageCache().get(pageNumber);
+        var rendered = viewModel.session().renderedPageCache().get(pageNumber);
+        var source = rendered == null ? viewModel.session().pageCache().get(pageNumber) : rendered;
         if (source == null) {
             return null;
         }
@@ -2333,6 +2338,8 @@ public final class ConfiguratorApplication extends Application {
             renderSelectedAnchorOverlay();
             renderSelectedFieldOverlay();
             renderSelectedOcrExplorerOverlay();
+            renderSelectedFieldResultOverlay();
+            renderSelectedAnchorTraceOverlay();
         }
     }
 
@@ -2648,6 +2655,44 @@ public final class ConfiguratorApplication extends Application {
         var rectangle = regionRectangle(field.region(), Color.color(0.50, 0.20, 0.82, 0.12), "#7c3aed", 2.0);
         viewer.addOverlay(rectangle);
         viewer.editableRegion(rectangle, RegionTargetType.FIELD_REGION);
+    }
+
+    private void renderSelectedFieldResultOverlay() {
+        if (selectedFieldResult == null) {
+            return;
+        }
+        var field = fieldById(selectedFieldResult.fieldId().value());
+        if (field == null || field.page() != null && field.page() != viewModel.session().currentPage()) {
+            return;
+        }
+        var region = selectedFieldResult.resolvedRegion() == null
+            ? field.region() == null ? null : toDomainRegion(field.region())
+            : selectedFieldResult.resolvedRegion();
+        if (region == null) {
+            return;
+        }
+        var rectangle = domainRegionRectangle(region, Color.color(0.96, 0.82, 0.20, 0.18), "#ca8a04", 2.5);
+        rectangle.getStrokeDashArray().setAll(8.0, 4.0);
+        viewer.addOverlay(rectangle);
+    }
+
+    private void selectFieldResult(FieldResult fieldResult) {
+        selectedFieldResult = fieldResult;
+        renderOcrOverlay();
+    }
+
+    private void renderSelectedAnchorTraceOverlay() {
+        if (selectedAnchorTraceRegion == null) {
+            return;
+        }
+        var rectangle = domainRegionRectangle(selectedAnchorTraceRegion, Color.color(0.12, 0.65, 0.38, 0.18), "#059669", 2.5);
+        rectangle.getStrokeDashArray().setAll(4.0, 4.0);
+        viewer.addOverlay(rectangle);
+    }
+
+    private void selectAnchorTraceRegion(pl.sk.ocr.domain.geometry.Region region) {
+        selectedAnchorTraceRegion = region;
+        renderOcrOverlay();
     }
 
     private Rectangle regionRectangle(RegionDto region, Color fill, String stroke, double strokeWidth) {
@@ -3096,6 +3141,16 @@ public final class ConfiguratorApplication extends Application {
     private pl.sk.ocr.config.dto.FieldDto field(int index) {
         var fieldList = fields();
         return index < 0 || index >= fieldList.size() ? null : fieldList.get(index);
+    }
+
+    private pl.sk.ocr.config.dto.FieldDto fieldById(String fieldId) {
+        if (fieldId == null || fieldId.isBlank()) {
+            return null;
+        }
+        return fields().stream()
+            .filter(field -> java.util.Objects.equals(field.id(), fieldId))
+            .findFirst()
+            .orElse(null);
     }
 
     private List<pl.sk.ocr.config.dto.FieldDto> fields() {

@@ -11,6 +11,8 @@ import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
@@ -120,8 +122,8 @@ final class ExtensionParametersForm {
                                                  Consumer<Object> onChange, Label error) {
         return switch (parameter.type()) {
             case STRING, REGEX -> textControl(value, onChange);
-            case INTEGER -> integerControl(value, onChange, error);
-            case DECIMAL -> decimalControl(value, onChange, error);
+            case INTEGER -> integerControl(parameter, value, onChange, error);
+            case DECIMAL -> decimalControl(parameter, value, onChange, error);
             case BOOLEAN -> booleanControl(value, onChange);
             case ENUM -> enumControl(parameter, value, onChange);
         };
@@ -133,36 +135,66 @@ final class ExtensionParametersForm {
         return field;
     }
 
-    private TextField integerControl(Object value, Consumer<Object> onChange, Label error) {
-        var field = new TextField(value == null ? "" : value.toString());
-        field.textProperty().addListener((obs, old, text) -> {
+    private Spinner<Integer> integerControl(ExtensionParameterDescriptor parameter, Object value, Consumer<Object> onChange, Label error) {
+        var constraints = parameter.constraints();
+        var min = constraints == null || constraints.min() == null ? Integer.MIN_VALUE : constraints.min().intValue();
+        var max = constraints == null || constraints.max() == null ? Integer.MAX_VALUE : constraints.max().intValue();
+        var initial = value instanceof Number number ? number.intValue() : 0;
+        initial = Math.max(min, Math.min(max, initial));
+        var spinner = new Spinner<Integer>();
+        spinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(min, max, initial));
+        spinner.setEditable(true);
+        spinner.setPrefWidth(120);
+        spinner.getEditor().setText(value == null ? "" : String.valueOf(initial));
+        spinner.valueProperty().addListener((obs, old, selected) -> onChange.accept(selected));
+        spinner.getEditor().textProperty().addListener((obs, old, text) -> {
             if (text == null || text.isBlank()) {
                 onChange.accept(null);
                 return;
             }
             try {
-                onChange.accept(Integer.parseInt(text.trim()));
+                var parsed = Integer.parseInt(text.trim());
+                if (parsed < min || parsed > max) {
+                    error.setText("Value must be between " + min + " and " + max + ".");
+                    return;
+                }
+                onChange.accept(parsed);
             } catch (NumberFormatException e) {
                 error.setText("Value must be an integer.");
             }
         });
-        return field;
+        return spinner;
     }
 
-    private TextField decimalControl(Object value, Consumer<Object> onChange, Label error) {
-        var field = new TextField(value == null ? "" : value.toString());
-        field.textProperty().addListener((obs, old, text) -> {
+    private Spinner<Double> decimalControl(ExtensionParameterDescriptor parameter, Object value, Consumer<Object> onChange, Label error) {
+        var constraints = parameter.constraints();
+        var min = constraints == null || constraints.min() == null ? -Double.MAX_VALUE : constraints.min().doubleValue();
+        var max = constraints == null || constraints.max() == null ? Double.MAX_VALUE : constraints.max().doubleValue();
+        var initial = value instanceof Number number ? number.doubleValue() : 0.0;
+        initial = Math.max(min, Math.min(max, initial));
+        var spinner = new Spinner<Double>();
+        spinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(min, max, initial, 0.1));
+        spinner.setEditable(true);
+        spinner.setPrefWidth(120);
+        spinner.getEditor().setText(value == null ? "" : String.valueOf(initial));
+        spinner.valueProperty().addListener((obs, old, selected) -> onChange.accept(selected));
+        spinner.getEditor().textProperty().addListener((obs, old, text) -> {
             if (text == null || text.isBlank()) {
                 onChange.accept(null);
                 return;
             }
             try {
-                onChange.accept(Double.parseDouble(text.trim()));
+                var parsed = Double.parseDouble(text.trim());
+                if (parsed < min || parsed > max) {
+                    error.setText("Value must be between " + min + " and " + max + ".");
+                    return;
+                }
+                onChange.accept(parsed);
             } catch (NumberFormatException e) {
                 error.setText("Value must be decimal.");
             }
         });
-        return field;
+        return spinner;
     }
 
     private CheckBox booleanControl(Object value, Consumer<Object> onChange) {

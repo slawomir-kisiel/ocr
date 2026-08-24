@@ -97,10 +97,26 @@ public final class ProfilePreprocessingPanel {
         parameters.getChildren().clear();
         var index = selectedIndex();
         var current = currentSteps();
-        if (index >= 0 && index < current.size()) {
-            parameters.getChildren().add(parametersForm.view(current.get(index), ExtensionType.IMAGE_PROCESSOR,
-                ref -> replaceStep(index, ref)));
+        if (index >= 0 && index < current.size() && parametersForm.hasParameters(current.get(index), ExtensionType.IMAGE_PROCESSOR)) {
+            parameters.getChildren().add(indentedParameters(current.get(index), ref -> replaceStep(index, ref)));
         }
+    }
+
+    private Node indentedParameters(ExtensionRefDto ref, Consumer<ExtensionRefDto> onChange) {
+        var content = parametersForm.inlineView(ref, ExtensionType.IMAGE_PROCESSOR, onChange);
+        var box = new HBox(8, parameterGuideLine(), content);
+        box.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(content, Priority.ALWAYS);
+        return box;
+    }
+
+    private Node parameterGuideLine() {
+        var line = new javafx.scene.layout.Region();
+        line.setMinWidth(2);
+        line.setPrefWidth(2);
+        line.setMaxWidth(2);
+        line.setStyle("-fx-background-color: #94a3b8;");
+        return line;
     }
 
     private void addStep() {
