@@ -44,7 +44,10 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final TextField anchorId = new TextField();
     private final TextField anchorPage = new TextField();
     private final TextField anchorDetectorId = new TextField();
+    private final TextField anchorExpectedText = new TextField();
+    private final TextField anchorMatcherId = new TextField();
     private final Button pickDetector = new Button("...");
+    private final Button pickMatcher = new Button("...");
     private final CheckBox anchorRequired = new CheckBox();
     private final Spinner<Integer> searchRegionX = regionSpinner();
     private final Spinner<Integer> searchRegionY = regionSpinner();
@@ -107,6 +110,8 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
             anchorId.setText(anchor == null ? "" : nullToEmpty(anchor.id()));
             anchorPage.setText(anchor == null || anchor.page() == null ? "" : anchor.page().toString());
             anchorDetectorId.setText(anchor == null || anchor.detector() == null ? "" : nullToEmpty(anchor.detector().id()));
+            anchorExpectedText.setText(anchor == null ? "" : nullToEmpty(anchor.expectedText()));
+            anchorMatcherId.setText(anchor == null || anchor.matcher() == null ? "" : nullToEmpty(anchor.matcher().id()));
             anchorRequired.setSelected(anchor != null && Boolean.TRUE.equals(anchor.required()));
             var searchRegion = anchor == null ? null : anchor.searchRegion();
             setRegionSpinnerText(searchRegionX, searchRegion == null ? "" : formatRegionNumber(searchRegion.x()));
@@ -146,7 +151,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var current = anchor(index);
         if (current != null) {
             viewModel.replaceAnchor(index, new AnchorDto(current.id(), current.page(), current.detector(),
-                current.required(), current.referenceFeature(), region));
+                current.expectedText(), current.matcher(), current.required(), current.referenceFeature(), region));
         }
     }
 
@@ -154,7 +159,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var current = anchor(index);
         if (current != null) {
             viewModel.replaceAnchor(index, new AnchorDto(current.id(), current.page(), current.detector(),
-                current.required(), new ReferenceFeatureDto(region), current.searchRegion()));
+                current.expectedText(), current.matcher(), current.required(), new ReferenceFeatureDto(region), current.searchRegion()));
         }
     }
 
@@ -164,7 +169,10 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         installTooltip(anchorId, "Anchor id used by geometry strategy references.");
         installTooltip(anchorPage, "Page where this anchor should be detected.");
         installTooltip(anchorDetectorId, "Detector extension id used by this anchor.");
+        installTooltip(anchorExpectedText, "Text expected in detector output.");
+        installTooltip(anchorMatcherId, "Matcher extension id used by this anchor.");
         installTooltip(pickDetector, "Choose detector extension from registry.");
+        installTooltip(pickMatcher, "Choose matcher extension from registry.");
         installTooltip(anchorRequired, "Whether missing anchor should fail geometry detection.");
         installTooltip(searchRegionX, "Anchor search region X coordinate.");
         installTooltip(searchRegionY, "Anchor search region Y coordinate.");
@@ -183,7 +191,10 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addDraftListener(anchorId, this::applySelectedAnchor);
         addDraftListener(anchorPage, this::applySelectedAnchor);
         addDraftListener(anchorDetectorId, this::applySelectedAnchor);
+        addDraftListener(anchorExpectedText, this::applySelectedAnchor);
+        addDraftListener(anchorMatcherId, this::applySelectedAnchor);
         pickDetector.setOnAction(event -> chooseDetector());
+        pickMatcher.setOnAction(event -> chooseMatcher());
         anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
         addRegionSpinnerListeners(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight,
             () -> symmetricSearchRegionResizeEnabled);
@@ -231,11 +242,16 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         addFormRow(anchorContent, "ID", anchorId);
         addFormRow(anchorContent, "Page", anchorPage);
         addFormRow(anchorContent, "Detector ID", extensionInput(anchorDetectorId, pickDetector));
+        addFormRow(anchorContent, "Expected Text", anchorExpectedText);
+        addFormRow(anchorContent, "Matcher ID", extensionInput(anchorMatcherId, pickMatcher));
         addFormRow(anchorContent, "Required", anchorRequired);
         section.getChildren().add(titledPane("Anchor", anchorContent));
         var anchor = anchor(anchorIndex);
         if (anchor != null && anchor.detector() != null) {
             section.getChildren().add(parametersForm.view(anchor.detector(), ExtensionType.DETECTOR, ref -> replaceDetector(anchorIndex, ref)));
+        }
+        if (anchor != null && anchor.matcher() != null) {
+            section.getChildren().add(parametersForm.view(anchor.matcher(), ExtensionType.MATCHER, ref -> replaceMatcher(anchorIndex, ref)));
         }
 
         var searchRegionContent = new VBox(8);
@@ -378,11 +394,27 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         });
     }
 
+    private void chooseMatcher() {
+        extensionPicker.chooseId(ExtensionType.MATCHER, anchorMatcherId.getText()).ifPresent(id -> {
+            anchorMatcherId.setText(id);
+            applySelectedAnchor();
+        });
+    }
+
     private void replaceDetector(int anchorIndex, ExtensionRefDto detector) {
         var current = anchor(anchorIndex);
         if (current != null) {
             viewModel.replaceAnchor(anchorIndex, new AnchorDto(current.id(), current.page(), detector,
-                current.required(), current.referenceFeature(), current.searchRegion()));
+                current.expectedText(), current.matcher(), current.required(), current.referenceFeature(), current.searchRegion()));
+            afterChange.run();
+        }
+    }
+
+    private void replaceMatcher(int anchorIndex, ExtensionRefDto matcher) {
+        var current = anchor(anchorIndex);
+        if (current != null) {
+            viewModel.replaceAnchor(anchorIndex, new AnchorDto(current.id(), current.page(), current.detector(),
+                current.expectedText(), matcher, current.required(), current.referenceFeature(), current.searchRegion()));
             afterChange.run();
         }
     }
@@ -393,7 +425,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         }
         var index = anchors.get().size();
         viewModel.addAnchor(new AnchorDto(uniqueAnchorId(index + 1), viewModel.session().currentPage(),
-            extensionRef("text"), true, null, null));
+            extensionRef("text"), "", null, true, null, null));
         pendingSelection.accept("anchor." + index);
         refreshAll.run();
     }
@@ -405,7 +437,8 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var index = selectedIndex.getAsInt();
         var current = selectedAnchor();
         viewModel.replaceAnchor(index, new AnchorDto(blankToNull(anchorId.getText()), parseInteger(anchorPage.getText()),
-            extensionRef(anchorDetectorId.getText(), current == null ? null : current.detector()), anchorRequired.isSelected(), referenceFeature(), searchRegion()));
+            extensionRef(anchorDetectorId.getText(), current == null ? null : current.detector()), blankToNull(anchorExpectedText.getText()),
+            extensionRef(anchorMatcherId.getText(), current == null ? null : current.matcher()), anchorRequired.isSelected(), referenceFeature(), searchRegion()));
         pendingSelection.accept("anchor." + index);
         afterChange.run();
     }

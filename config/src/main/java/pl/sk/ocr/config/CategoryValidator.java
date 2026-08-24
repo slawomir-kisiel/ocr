@@ -70,19 +70,12 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             }
             for (int j = 0; j < group.conditions().size(); j++) {
                 var condition = group.conditions().get(j);
-                if (isTextCondition(condition.type())) {
-                    validateExtension(condition.matcher(), ExtensionType.MATCHER,
-                        "$.identification.groups[" + i + "].conditions[" + j + "].matcher", problems);
-                } else if ("QR".equals(condition.type()) || "BARCODE".equals(condition.type())) {
-                    validateExtension(condition.detector(), ExtensionType.DETECTOR,
-                        "$.identification.groups[" + i + "].conditions[" + j + "].detector", problems);
-                }
+                validateRequiredExtension(condition.detector(), ExtensionType.DETECTOR,
+                    "$.identification.groups[" + i + "].conditions[" + j + "].detector", problems);
+                validateExtension(condition.matcher(), ExtensionType.MATCHER,
+                    "$.identification.groups[" + i + "].conditions[" + j + "].matcher", problems);
             }
         }
-    }
-
-    private boolean isTextCondition(String type) {
-        return "TEXT".equals(type) || "TEXT_FUZZY".equals(type);
     }
 
     private void validateAnchors(List<AnchorDto> anchors, GeometryDto geometry, List<ConfigurationProblem> problems) {
@@ -96,7 +89,8 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
                 problems.add(problem("DUPLICATE_ID", "$.anchors[" + i + "].id", "Duplicate anchor id"));
             }
             positive(anchor.page(), "$.anchors[" + i + "].page", problems);
-            validateExtension(anchor.detector(), ExtensionType.DETECTOR, "$.anchors[" + i + "].detector", problems);
+            validateRequiredExtension(anchor.detector(), ExtensionType.DETECTOR, "$.anchors[" + i + "].detector", problems);
+            validateExtension(anchor.matcher(), ExtensionType.MATCHER, "$.anchors[" + i + "].matcher", problems);
             validateRegion(anchor.searchRegion(), "$.anchors[" + i + "].searchRegion", problems);
             if (anchor.referenceFeature() != null) {
                 validateRegion(anchor.referenceFeature().bounds(), "$.anchors[" + i + "].referenceFeature.bounds", problems);
@@ -211,6 +205,14 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         } catch (IllegalArgumentException e) {
             problems.add(problem("EXTENSION_NOT_FOUND", path + ".id", e.getMessage()));
         }
+    }
+
+    private void validateRequiredExtension(ExtensionRefDto ref, ExtensionType expectedType, String path, List<ConfigurationProblem> problems) {
+        if (ref == null) {
+            problems.add(problem("EXTENSION_NOT_FOUND", path, "Extension id is required"));
+            return;
+        }
+        validateExtension(ref, expectedType, path, problems);
     }
 
     private void validateExtensionParameter(ExtensionRefDto ref, ExtensionParameterDescriptor descriptor, String path,

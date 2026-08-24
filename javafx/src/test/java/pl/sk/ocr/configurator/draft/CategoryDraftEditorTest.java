@@ -66,9 +66,9 @@ class CategoryDraftEditorTest {
     void replacesIdentificationCondition() {
         var draft = editor.newCategory("invoice", "Invoice");
 
-        draft = editor.replaceCondition(draft, 0, 0, new ConditionDto("QR", 2, null, null, null, null));
+        draft = editor.replaceCondition(draft, 0, 0, new ConditionDto(2, null, null, new ExtensionRefDto("qr", java.util.Map.of()), null));
 
-        assertThat(draft.identification().groups().get(0).conditions().get(0).type()).isEqualTo("QR");
+        assertThat(draft.identification().groups().get(0).conditions().get(0).detector().id()).isEqualTo("qr");
         assertThat(draft.identification().groups().get(0).conditions().get(0).page()).isEqualTo(2);
     }
 
@@ -126,7 +126,7 @@ class CategoryDraftEditorTest {
     }
 
     private static ConditionDto condition(String text) {
-        return new ConditionDto("TEXT", 1, text, null, null, null);
+        return new ConditionDto(1, text, null, new ExtensionRefDto("text", java.util.Map.of()), null);
     }
 
     private static ExtensionRefDto extension(String id) {

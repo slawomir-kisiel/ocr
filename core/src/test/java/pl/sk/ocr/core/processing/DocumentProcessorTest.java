@@ -111,11 +111,14 @@ class DocumentProcessorTest {
             new SinglePageSelection(1),
             OcrSettings.defaults(),
             new GeometryConfiguration(100, 100, "SINGLE_REFERENCE", List.of(new AnchorId("title"))),
-            List.of(new IdentificationGroup(List.of(new IdentificationCondition("TEXT", 1, "INVOICE", null, null, null)))),
+            List.of(new IdentificationGroup(List.of(new IdentificationCondition(1, "INVOICE", null,
+                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of()), null)))),
             List.of(new AnchorDefinition(
                 new AnchorId("title"),
                 1,
-                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of("text", "INVOICE")),
+                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of()),
+                "INVOICE",
+                null,
                 true,
                 new Region(10, 10, 20, 20),
                 null

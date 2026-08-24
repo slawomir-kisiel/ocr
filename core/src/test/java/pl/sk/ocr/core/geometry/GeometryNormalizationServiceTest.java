@@ -27,7 +27,7 @@ class GeometryNormalizationServiceTest {
             OcrSettings.defaults(),
             new GeometryConfiguration(100, 100, "SINGLE_REFERENCE", List.of(anchorId)),
             List.of(),
-            List.of(new AnchorDefinition(anchorId, 1, null, true, new Region(10, 10, 20, 20), null)),
+            List.of(new AnchorDefinition(anchorId, 1, null, null, null, true, new Region(10, 10, 20, 20), null)),
             List.of()
         );
 

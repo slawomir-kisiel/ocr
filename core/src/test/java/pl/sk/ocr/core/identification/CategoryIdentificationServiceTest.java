@@ -17,11 +17,13 @@ import pl.sk.ocr.domain.config.ConfigurationVersion;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.identifier.ExtensionId;
 import pl.sk.ocr.domain.identifier.CategoryId;
+import pl.sk.ocr.domain.ocr.BoundingBox;
+import pl.sk.ocr.domain.ocr.Confidence;
 import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.ocr.OcrWord;
 import pl.sk.ocr.extension.api.DefaultExtensionRegistry;
 import pl.sk.ocr.extension.api.ExtensionDescriptor;
 import pl.sk.ocr.extension.api.ExtensionType;
-import pl.sk.ocr.extension.api.detector.DetectedGeometry;
 import pl.sk.ocr.extension.api.detector.DetectionRequest;
 import pl.sk.ocr.extension.api.detector.DetectionResult;
 import pl.sk.ocr.extension.api.detector.DetectionStatus;
@@ -35,11 +37,11 @@ class CategoryIdentificationServiceTest {
         var service = new CategoryIdentificationService();
         var category = category("invoice-a", List.of(
             new IdentificationGroup(List.of(
-                new IdentificationCondition("TEXT", 1, "INVOICE", null, null, null),
-                new IdentificationCondition("TEXT", 1, "TOTAL", null, null, null)
+                new IdentificationCondition(1, "INVOICE", null, new ExtensionRef(new ExtensionId("text"), Map.of()), null),
+                new IdentificationCondition(1, "TOTAL", null, new ExtensionRef(new ExtensionId("text"), Map.of()), null)
             )),
             new IdentificationGroup(List.of(
-                new IdentificationCondition("TEXT", 1, "FORM", null, null, null)
+                new IdentificationCondition(1, "FORM", null, new ExtensionRef(new ExtensionId("text"), Map.of()), null)
             ))
         ));
 
@@ -53,8 +55,7 @@ class CategoryIdentificationServiceTest {
     void matchesQrConditionUsingDetectorPayload() {
         var service = new CategoryIdentificationService(new DefaultExtensionRegistry(List.of(new TestQrDetector())));
         var category = category("voucher", List.of(new IdentificationGroup(List.of(
-            new IdentificationCondition("QR", 1, "VOUCHER", null,
-                new ExtensionRef(new ExtensionId("qr"), Map.of()), null)
+            new IdentificationCondition(1, "VOUCHER", null, new ExtensionRef(new ExtensionId("qr"), Map.of()), null)
         ))));
 
         var result = service.identify(List.of(category), new OcrText("", List.of()),
@@ -81,7 +82,9 @@ class CategoryIdentificationServiceTest {
     private static final class TestQrDetector implements Detector {
         @Override
         public DetectionResult detect(DetectionRequest request, DetectorContext context) {
-            return new DetectionResult(DetectionStatus.DETECTED, List.of(new DetectedGeometry(new Region(1, 1, 10, 10), 1.0)), "VOUCHER-1");
+            return new DetectionResult(DetectionStatus.DETECTED,
+                new OcrText("VOUCHER-1", List.of(new OcrWord("VOUCHER-1", new BoundingBox(new Region(1, 1, 10, 10)), new Confidence(1.0)))),
+                "QR detected");
         }
 
         @Override

@@ -165,18 +165,15 @@ public final class DocumentProcessor {
                 for (int conditionIndex = 0; conditionIndex < conditions.size(); conditionIndex++) {
                     var condition = conditions.get(conditionIndex);
                     var attributes = new java.util.LinkedHashMap<String, Object>();
-                    var detectorPayload = detectorPayload(condition, pageImage);
-                    var haystack = isDetectorCondition(condition)
-                        ? detectorPayload
-                        : condition.searchRegion() == null ? pageOcr.value() : wordsInRegion(pageOcr.words(), condition.searchRegion());
+                    var haystack = detectorPayload(condition, pageOcr, pageImage);
                     var normalizedHaystack = normalize(haystack);
                     var normalizedExpected = normalize(condition.expectedText());
                     var matches = conditionMatches(condition, haystack, normalizedHaystack, normalizedExpected);
                     attributes.put("categoryId", category.id().value());
                     attributes.put("group", groupIndex + 1);
                     attributes.put("condition", conditionIndex + 1);
-                    attributes.put("type", condition.type());
                     attributes.put("configuredPage", condition.page());
+                    attributes.put("detectorId", condition.detector() == null ? "" : condition.detector().id().value());
                     attributes.put("expectedText", condition.expectedText());
                     attributes.put("normalizedExpected", normalizedExpected);
                     attributes.put("matcherId", condition.matcher() == null ? "" : condition.matcher().id().value());
@@ -184,9 +181,7 @@ public final class DocumentProcessor {
                     attributes.put("searchRegion", regionText(condition.searchRegion()));
                     attributes.put("ocrWordsTotal", pageOcr.words().size());
                     attributes.put("ocrTextInRegion", haystack);
-                    if (isDetectorCondition(condition)) {
-                        attributes.put("detectorPayload", detectorPayload);
-                    }
+                    attributes.put("detectorPayload", haystack);
                     attributes.put("normalizedOcrTextInRegion", normalizedHaystack);
                     attributes.put("matched", matches);
                     entries.add(new TraceEntry(
@@ -210,16 +205,11 @@ public final class DocumentProcessor {
             }
             return false;
         }
-        return switch (condition.type()) {
-            case "TEXT" -> normalizedHaystack.contains(normalizedExpected);
-            case "TEXT_FUZZY" -> normalizedHaystack.contains(normalizedExpected) || similarity(normalizedHaystack, normalizedExpected) >= 0.80;
-            case "QR", "BARCODE" -> normalizedExpected.isBlank() ? !haystack.isBlank() : normalizedHaystack.contains(normalizedExpected);
-            default -> false;
-        };
+        return normalizedExpected.isBlank() ? !haystack.isBlank() : normalizedHaystack.contains(normalizedExpected);
     }
 
-    private String detectorPayload(IdentificationCondition condition, ProcessingImage pageImage) {
-        if (!isDetectorCondition(condition) || pageImage == null || condition.detector() == null) {
+    private String detectorPayload(IdentificationCondition condition, pl.sk.ocr.domain.ocr.OcrText pageOcr, ProcessingImage pageImage) {
+        if (pageImage == null || condition.detector() == null) {
             return "";
         }
         var extension = extensionRegistry.find(condition.detector().id());
@@ -227,12 +217,22 @@ public final class DocumentProcessor {
             return "";
         }
         try {
-            var result = detector.detect(new DetectionRequest(detectorImage(pageImage, condition.searchRegion()), condition.expectedText(),
+            var result = detector.detect(new DetectionRequest(detectorImage(pageImage, condition.searchRegion()), detectorText(pageOcr, condition.searchRegion()),
                 ExtensionParameters.of(condition.detector().parameters())), () -> TraceSink.NOOP);
-            return result.status() == DetectionStatus.DETECTED ? result.message() : "";
+            if (result.status() != DetectionStatus.DETECTED) {
+                return "";
+            }
+            return result.text().value().isBlank() ? result.text().textFromWords() : result.text().value();
         } catch (RuntimeException e) {
             return "";
         }
+    }
+
+    private String detectorText(pl.sk.ocr.domain.ocr.OcrText pageOcr, Region searchRegion) {
+        if (pageOcr == null) {
+            return "";
+        }
+        return searchRegion == null ? pageOcr.value() : wordsInRegion(pageOcr.words(), searchRegion);
     }
 
     private ProcessingImage detectorImage(ProcessingImage pageImage, Region searchRegion) {
@@ -240,10 +240,6 @@ public final class DocumentProcessor {
             return pageImage;
         }
         return new BufferedProcessingImage(pageImage.asBufferedImage()).crop(searchRegion);
-    }
-
-    private boolean isDetectorCondition(IdentificationCondition condition) {
-        return "QR".equals(condition.type()) || "BARCODE".equals(condition.type());
     }
 
     private String matcherStatus(IdentificationCondition condition) {
@@ -278,31 +274,6 @@ public final class DocumentProcessor {
 
     private static String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
-    }
-
-    private static double similarity(String a, String b) {
-        if (a.isEmpty() || b.isEmpty()) {
-            return 0.0;
-        }
-        var distance = levenshtein(a, b);
-        return 1.0 - ((double) distance / Math.max(a.length(), b.length()));
-    }
-
-    private static int levenshtein(String a, String b) {
-        var dp = new int[a.length() + 1][b.length() + 1];
-        for (int i = 0; i <= a.length(); i++) {
-            dp[i][0] = i;
-        }
-        for (int j = 0; j <= b.length(); j++) {
-            dp[0][j] = j;
-        }
-        for (int i = 1; i <= a.length(); i++) {
-            for (int j = 1; j <= b.length(); j++) {
-                var cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                dp[i][j] = Math.min(Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1), dp[i - 1][j - 1] + cost);
-            }
-        }
-        return dp[a.length()][b.length()];
     }
 
     private List<FieldResult> extractFields(CategoryRuntimeConfiguration category, ProcessingImage pageImage, Transform transform) {

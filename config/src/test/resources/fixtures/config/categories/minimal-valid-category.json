@@ -12,9 +12,11 @@
       {
         "conditions": [
           {
-            "type": "TEXT",
             "page": 1,
             "expectedText": "INVOICE",
+            "detector": {
+              "id": "text"
+            },
             "matcher": {
               "id": "normalized"
             }
@@ -38,10 +40,11 @@
       "id": "title",
       "page": 1,
       "detector": {
-        "id": "text",
-        "parameters": {
-          "text": "INVOICE"
-        }
+        "id": "text"
+      },
+      "expectedText": "INVOICE",
+      "matcher": {
+        "id": "normalized"
       },
       "required": true,
       "referenceFeature": {

@@ -12,9 +12,11 @@
       {
         "conditions": [
           {
-            "type": "TEXT",
             "page": 1,
             "expectedText": "X",
+            "detector": {
+              "id": "text"
+            },
             "matcher": {
               "id": "normalized"
             }

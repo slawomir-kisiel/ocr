@@ -193,7 +193,7 @@ class CategoryEditorViewModelTest {
             null,
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
-            new IdentificationDto(List.of(new ConditionGroupDto(List.of(new ConditionDto("TEXT", 1, "DOC", null, null, null))))),
+            new IdentificationDto(List.of(new ConditionGroupDto(List.of(new ConditionDto(1, "DOC", null, new ExtensionRefDto("text", java.util.Map.of()), null))))),
             new GeometryDto(0, 0, new GeometryStrategyDto("NONE", List.of())),
             List.of(),
             List.of(new FieldDto("amount", "Amount", 1, new RegionDto(0, 0, 10, 10), true, null,

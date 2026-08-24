@@ -109,7 +109,6 @@ final class ConfigurationMappers {
         return dto.groups().stream()
             .map(group -> new IdentificationGroup(group.conditions().stream()
                 .map(condition -> new IdentificationCondition(
-                    condition.type(),
                     condition.page(),
                     condition.expectedText(),
                     extension(condition.matcher()),
@@ -125,6 +124,8 @@ final class ConfigurationMappers {
             new AnchorId(dto.id()),
             dto.page(),
             extension(dto.detector()),
+            dto.expectedText(),
+            extension(dto.matcher()),
             dto.required() == null || dto.required(),
             dto.referenceFeature() == null ? null : region(dto.referenceFeature().bounds()),
             region(dto.searchRegion())

@@ -2545,8 +2545,8 @@ public final class ConfiguratorApplication extends Application {
             viewModel.addIdentificationGroup(new ConditionGroupDto(List.of()));
         }
         var conditionIndex = conditions(groupIndex).size();
-        viewModel.addCondition(groupIndex, new ConditionDto("TEXT", viewModel.session().currentPage(), row.text(),
-            new ExtensionRefDto("contains", Map.of("caseSensitive", false)), null, toDtoRegion(row.region())));
+        viewModel.addCondition(groupIndex, new ConditionDto(viewModel.session().currentPage(), row.text(),
+            new ExtensionRefDto("contains", Map.of("caseSensitive", false)), new ExtensionRefDto("text", Map.of()), toDtoRegion(row.region())));
         pendingTreeSelectionId = "identification.group." + groupIndex + ".condition." + conditionIndex;
         layerDiagnostics = true;
         refreshAll();
@@ -2562,7 +2562,8 @@ public final class ConfiguratorApplication extends Application {
         var index = anchors().size();
         var bounds = toDtoRegion(row.region());
         viewModel.addAnchor(new AnchorDto(uniqueAnchorId(index + 1), viewModel.session().currentPage(),
-            new ExtensionRefDto("text", Map.of("text", row.text())), true, new ReferenceFeatureDto(bounds), bounds));
+            new ExtensionRefDto("text", Map.of()), row.text(), new ExtensionRefDto("contains", Map.of("caseSensitive", false)), true,
+            new ReferenceFeatureDto(bounds), bounds));
         pendingTreeSelectionId = "anchor." + index;
         layerAnchors = true;
         refreshAll();
@@ -2708,7 +2709,7 @@ public final class ConfiguratorApplication extends Application {
             for (int conditionIndex = 0; conditionIndex < conditions.size(); conditionIndex++) {
                 var condition = conditions.get(conditionIndex);
                 groupItem.getChildren().add(new TreeItem<>(new ConfigurationTreeNode(TreeNodeType.CONDITION,
-                    "Condition " + (conditionIndex + 1) + ": " + labelOrDefault(condition.type(), "condition"),
+                    "Condition " + (conditionIndex + 1) + ": " + labelOrDefault(condition.detector() == null ? null : condition.detector().id(), "condition"),
                     "identification.group." + groupIndex + ".condition." + conditionIndex,
                     groupIndex,
                     conditionIndex,

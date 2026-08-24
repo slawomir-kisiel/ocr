@@ -1,12 +1,12 @@
 package pl.sk.ocr.extension.api.detector;
 
-import java.util.List;
 import pl.sk.ocr.domain.Validation;
+import pl.sk.ocr.domain.ocr.OcrText;
 
-public record DetectionResult(DetectionStatus status, List<DetectedGeometry> geometries, String message) {
+public record DetectionResult(DetectionStatus status, OcrText text, String message) {
     public DetectionResult {
         status = Validation.requireNonNull(status, "status");
-        geometries = List.copyOf(Validation.requireNoNulls(geometries == null ? List.of() : geometries, "geometries"));
+        text = text == null ? new OcrText("", java.util.List.of()) : text;
         message = message == null ? "" : message;
     }
 }

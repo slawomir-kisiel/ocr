@@ -58,7 +58,7 @@ public final class ConfigurationFileService {
             new PageSelectionDto("SINGLE", 1, null, null, null),
             new OcrSettingsDto("pol", null),
             new IdentificationDto(java.util.List.of(new ConditionGroupDto(java.util.List.of(
-                new ConditionDto("TEXT", 1, "", null, null, null)
+                new ConditionDto(1, "", null, new ExtensionRefDto("text", java.util.Map.of()), null)
             )))),
             new GeometryDto(0, 0, new GeometryStrategyDto("NONE", java.util.List.of())),
             java.util.List.of(),

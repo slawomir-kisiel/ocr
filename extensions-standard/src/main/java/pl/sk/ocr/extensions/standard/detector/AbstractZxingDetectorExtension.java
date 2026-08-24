@@ -11,10 +11,8 @@ import com.google.zxing.common.HybridBinarizer;
 import java.util.List;
 import java.util.Map;
 import pl.sk.ocr.domain.geometry.Region;
-import pl.sk.ocr.extension.api.detector.DetectedGeometry;
 import pl.sk.ocr.extension.api.detector.DetectionRequest;
 import pl.sk.ocr.extension.api.detector.DetectionResult;
-import pl.sk.ocr.extension.api.detector.DetectionStatus;
 import pl.sk.ocr.extension.api.detector.DetectorContext;
 
 abstract class AbstractZxingDetectorExtension extends AbstractDetectorExtension {
@@ -30,16 +28,12 @@ abstract class AbstractZxingDetectorExtension extends AbstractDetectorExtension 
         var bitmap = new BinaryBitmap(new HybridBinarizer(source));
         try {
             var result = new MultiFormatReader().decode(bitmap, Map.of(DecodeHintType.POSSIBLE_FORMATS, formats));
-            return new DetectionResult(
-                DetectionStatus.DETECTED,
-                List.of(new DetectedGeometry(bounds(result.getResultPoints(), request.image().width(), request.image().height()), 1.0)),
-                result.getText()
-            );
+            return detectedText(result.getText(), bounds(result.getResultPoints(), request.image().width(), request.image().height()), 1.0,
+                "Code detected");
         } catch (NotFoundException e) {
             return notDetected("Code was not detected.");
         } catch (RuntimeException e) {
-            return new DetectionResult(DetectionStatus.FAILED, List.of(),
-                e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            return failed(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
     }
 

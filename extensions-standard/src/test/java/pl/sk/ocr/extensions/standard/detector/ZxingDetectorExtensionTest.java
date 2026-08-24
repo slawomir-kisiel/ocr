@@ -22,8 +22,9 @@ class ZxingDetectorExtensionTest {
             ExtensionParameters.empty()), () -> TraceSink.NOOP);
 
         assertThat(result.status()).isEqualTo(DetectionStatus.DETECTED);
-        assertThat(result.message()).isEqualTo("QR-123");
-        assertThat(result.geometries()).isNotEmpty();
+        assertThat(result.text().value()).isEqualTo("QR-123");
+        assertThat(result.text().words()).hasSize(1);
+        assertThat(result.text().words().getFirst().boundingBox().region().width()).isGreaterThan(0);
     }
 
     @Test
@@ -34,8 +35,9 @@ class ZxingDetectorExtensionTest {
             ExtensionParameters.empty()), () -> TraceSink.NOOP);
 
         assertThat(result.status()).isEqualTo(DetectionStatus.DETECTED);
-        assertThat(result.message()).isEqualTo("ABC123");
-        assertThat(result.geometries()).isNotEmpty();
+        assertThat(result.text().value()).isEqualTo("ABC123");
+        assertThat(result.text().words()).hasSize(1);
+        assertThat(result.text().words().getFirst().boundingBox().region().width()).isGreaterThan(0);
     }
 
     private ProcessingImage image(BarcodeFormat format, String payload) throws Exception {

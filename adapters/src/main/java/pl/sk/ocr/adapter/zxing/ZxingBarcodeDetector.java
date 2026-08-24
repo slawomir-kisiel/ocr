@@ -9,9 +9,12 @@ import com.google.zxing.common.HybridBinarizer;
 import java.util.List;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.identifier.ExtensionId;
+import pl.sk.ocr.domain.ocr.BoundingBox;
+import pl.sk.ocr.domain.ocr.Confidence;
+import pl.sk.ocr.domain.ocr.OcrText;
+import pl.sk.ocr.domain.ocr.OcrWord;
 import pl.sk.ocr.extension.api.ExtensionDescriptor;
 import pl.sk.ocr.extension.api.ExtensionType;
-import pl.sk.ocr.extension.api.detector.DetectedGeometry;
 import pl.sk.ocr.extension.api.detector.DetectionRequest;
 import pl.sk.ocr.extension.api.detector.DetectionResult;
 import pl.sk.ocr.extension.api.detector.DetectionStatus;
@@ -34,13 +37,14 @@ public final class ZxingBarcodeDetector implements Detector {
         var bitmap = new BinaryBitmap(new HybridBinarizer(source));
         try {
             var result = new MultiFormatReader().decode(bitmap);
+            var region = bounds(result.getResultPoints());
             return new DetectionResult(
                 DetectionStatus.DETECTED,
-                List.of(new DetectedGeometry(bounds(result.getResultPoints()), 1.0)),
-                result.getText()
+                new OcrText(result.getText(), List.of(new OcrWord(result.getText(), new BoundingBox(region), new Confidence(1.0)))),
+                "Code detected"
             );
         } catch (NotFoundException e) {
-            return new DetectionResult(DetectionStatus.NOT_DETECTED, List.of(), "");
+            return new DetectionResult(DetectionStatus.NOT_DETECTED, new OcrText("", List.of()), "");
         }
     }
 

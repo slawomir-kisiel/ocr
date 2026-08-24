@@ -65,7 +65,8 @@ class BatchDispatcherTest {
             new SinglePageSelection(1),
             OcrSettings.defaults(),
             new GeometryConfiguration(100, 100, "NONE", List.of()),
-            List.of(new IdentificationGroup(List.of(new IdentificationCondition("TEXT", 1, "DOC", null, null, null)))),
+            List.of(new IdentificationGroup(List.of(new IdentificationCondition(1, "DOC", null,
+                new pl.sk.ocr.config.runtime.ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), java.util.Map.of()), null)))),
             List.of(),
             List.of(new FieldDefinition(
                 new FieldId("number"),

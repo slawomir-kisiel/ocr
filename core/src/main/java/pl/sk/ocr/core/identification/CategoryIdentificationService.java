@@ -53,44 +53,62 @@ public final class CategoryIdentificationService {
     }
 
     private boolean matches(IdentificationCondition condition, OcrText pageOcr, ProcessingImage pageImage) {
-        return switch (condition.type()) {
-            case "TEXT" -> containsText(condition, pageOcr, false);
-            case "TEXT_FUZZY" -> containsText(condition, pageOcr, true);
-            case "QR", "BARCODE" -> detectorMatches(condition, pageImage);
-            default -> false;
-        };
+        return detectorMatches(condition, pageOcr, pageImage);
     }
 
-    private boolean detectorMatches(IdentificationCondition condition, ProcessingImage pageImage) {
-        if (pageImage == null || condition.detector() == null) {
+    private boolean detectorMatches(IdentificationCondition condition, OcrText pageOcr, ProcessingImage pageImage) {
+        if (condition.detector() == null) {
+            return false;
+        }
+        if (pageImage == null && "text".equals(condition.detector().id().value())) {
+            return payloadMatches(condition, detectorText(pageOcr, condition.searchRegion()));
+        }
+        if (pageImage == null) {
             return false;
         }
         try {
             var extension = extensionRegistry.find(condition.detector().id());
             if (extension.isEmpty() || !(extension.get() instanceof Detector detector)) {
+                if ("text".equals(condition.detector().id().value())) {
+                    return payloadMatches(condition, detectorText(pageOcr, condition.searchRegion()));
+                }
                 return false;
             }
-            var detection = detector.detect(new DetectionRequest(detectorImage(pageImage, condition.searchRegion()), condition.expectedText(),
+            var detection = detector.detect(new DetectionRequest(detectorImage(pageImage, condition.searchRegion()), detectorText(pageOcr, condition.searchRegion()),
                 ExtensionParameters.of(condition.detector().parameters())), () -> TraceSink.NOOP);
             if (detection.status() != DetectionStatus.DETECTED) {
                 return false;
             }
-            var payload = detection.message();
+            var payload = detection.text().value().isBlank() ? detection.text().textFromWords() : detection.text().value();
             if (condition.expectedText() == null || condition.expectedText().isBlank()) {
                 return true;
             }
-            if (condition.matcher() != null) {
-                var matcherExtension = extensionRegistry.find(condition.matcher().id());
-                if (matcherExtension.isEmpty() || !(matcherExtension.get() instanceof Matcher matcher)) {
-                    return false;
-                }
-                return matcher.match(new MatchRequest(condition.expectedText(), payload,
-                    ExtensionParameters.of(condition.matcher().parameters()))).matched();
-            }
-            return normalize(payload).contains(normalize(condition.expectedText()));
+            return payloadMatches(condition, payload);
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    private boolean payloadMatches(IdentificationCondition condition, String payload) {
+        if (condition.expectedText() == null || condition.expectedText().isBlank()) {
+            return payload != null && !payload.isBlank();
+        }
+        if (condition.matcher() != null) {
+            var matcherExtension = extensionRegistry.find(condition.matcher().id());
+            if (matcherExtension.isEmpty() || !(matcherExtension.get() instanceof Matcher matcher)) {
+                return false;
+            }
+            return matcher.match(new MatchRequest(condition.expectedText(), payload,
+                ExtensionParameters.of(condition.matcher().parameters()))).matched();
+        }
+        return normalize(payload).contains(normalize(condition.expectedText()));
+    }
+
+    private String detectorText(OcrText pageOcr, Region searchRegion) {
+        if (pageOcr == null) {
+            return "";
+        }
+        return searchRegion == null ? pageOcr.value() : wordsInRegion(pageOcr.words(), searchRegion);
     }
 
     private ProcessingImage detectorImage(ProcessingImage pageImage, Region searchRegion) {
@@ -98,24 +116,6 @@ public final class CategoryIdentificationService {
             return pageImage;
         }
         return new BufferedProcessingImage(pageImage.asBufferedImage()).crop(searchRegion);
-    }
-
-    private boolean containsText(IdentificationCondition condition, OcrText ocr, boolean fuzzy) {
-        var expected = condition.expectedText();
-        var haystack = condition.searchRegion() == null ? ocr.value() : wordsInRegion(ocr.words(), condition.searchRegion());
-        if (condition.matcher() != null) {
-            var extension = extensionRegistry.find(condition.matcher().id());
-            if (extension.isEmpty() || !(extension.get() instanceof Matcher matcher)) {
-                return false;
-            }
-            return matcher.match(new MatchRequest(expected, haystack, ExtensionParameters.of(condition.matcher().parameters()))).matched();
-        }
-        var normalizedHaystack = normalize(haystack);
-        var normalizedExpected = normalize(expected);
-        if (normalizedHaystack.contains(normalizedExpected)) {
-            return true;
-        }
-        return fuzzy && similarity(normalizedHaystack, normalizedExpected) >= 0.80;
     }
 
     private String wordsInRegion(List<OcrWord> words, Region region) {
@@ -127,30 +127,5 @@ public final class CategoryIdentificationService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
-    }
-
-    private static double similarity(String a, String b) {
-        if (a.isEmpty() || b.isEmpty()) {
-            return 0.0;
-        }
-        var distance = levenshtein(a, b);
-        return 1.0 - ((double) distance / Math.max(a.length(), b.length()));
-    }
-
-    private static int levenshtein(String a, String b) {
-        var dp = new int[a.length() + 1][b.length() + 1];
-        for (int i = 0; i <= a.length(); i++) {
-            dp[i][0] = i;
-        }
-        for (int j = 0; j <= b.length(); j++) {
-            dp[0][j] = j;
-        }
-        for (int i = 1; i <= a.length(); i++) {
-            for (int j = 1; j <= b.length(); j++) {
-                var cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                dp[i][j] = Math.min(Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1), dp[i - 1][j - 1] + cost);
-            }
-        }
-        return dp[a.length()][b.length()];
     }
 }
