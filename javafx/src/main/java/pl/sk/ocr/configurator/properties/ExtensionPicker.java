@@ -8,6 +8,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
@@ -39,8 +40,13 @@ final class ExtensionPicker {
         dialog.getDialogPane().setPrefSize(920, 620);
         dialog.getDialogPane().setMinSize(640, 420);
 
+        var search = new TextField();
+        search.setPromptText("Search by name, id or description");
+        search.setMaxWidth(Double.MAX_VALUE);
+
+        var allOptions = options(type, currentId);
         var list = new ListView<ExtensionOption>();
-        list.getItems().setAll(options(type, currentId));
+        list.getItems().setAll(allOptions);
         list.setCellFactory(view -> new ListCell<>() {
             @Override
             protected void updateItem(ExtensionOption item, boolean empty) {
@@ -49,11 +55,23 @@ final class ExtensionPicker {
             }
         });
         selectCurrent(list, currentId);
+        search.textProperty().addListener((obs, old, text) -> {
+            var selected = list.getSelectionModel().getSelectedItem();
+            var filtered = allOptions.stream()
+                .filter(option -> option.matches(text))
+                .toList();
+            list.getItems().setAll(filtered);
+            if (selected != null && filtered.stream().anyMatch(option -> option.id().equals(selected.id()))) {
+                list.getSelectionModel().select(selected);
+            } else {
+                list.getSelectionModel().clearSelection();
+            }
+        });
         list.setPrefHeight(500);
         list.setMaxWidth(Double.MAX_VALUE);
         list.setMaxHeight(Double.MAX_VALUE);
         VBox.setVgrow(list, Priority.ALWAYS);
-        var content = new VBox(8, new Label("Available extensions"), list);
+        var content = new VBox(8, new Label("Available extensions"), search, list);
         content.setMaxWidth(Double.MAX_VALUE);
         content.setMaxHeight(Double.MAX_VALUE);
         dialog.getDialogPane().setContent(content);
@@ -107,6 +125,21 @@ final class ExtensionPicker {
             var details = description == null || description.isBlank() ? "" : " - " + description;
             var versionText = version == null || version.isBlank() ? "" : " [" + version + "]";
             return displayName + state + " | " + id + versionText + details;
+        }
+
+        boolean matches(String query) {
+            if (query == null || query.isBlank()) {
+                return true;
+            }
+            var normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
+            return contains(id, normalized)
+                || contains(displayName, normalized)
+                || contains(description, normalized)
+                || contains(version, normalized);
+        }
+
+        private boolean contains(String value, String query) {
+            return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(query);
         }
     }
 }
