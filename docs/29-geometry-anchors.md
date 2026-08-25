@@ -324,3 +324,28 @@ Najbliższy kierunek implementacji:
 3. Dla QR/barcode traktować `TOP_LEFT` i `BOTTOM_RIGHT` jako dwa punkty kontrolne, jeśli bounds jest wystarczająco duży.
 4. Dla dwóch lub więcej punktów wybierać parę o największym dystansie euklidesowym.
 5. Rozszerzyć trace o `usedControlPoints`, wybraną parę i wartości transformacji.
+
+## 14. Stan implementacji strategii
+
+Zaimplementowane strategie geometrii:
+
+- `NONE` - brak normalizacji geometrii, używany jest `Transform.IDENTITY`.
+- `ANCHOR_TRANSLATION` - wylicza tylko przesunięcie `dx/dy` jako średnią różnicę pomiędzy punktami referencyjnymi i wykrytymi; skala pozostaje `1.0`.
+- `TWO_POINT_SCALE_TRANSLATE` - formalna nazwa strategii skalowania i przesunięcia. Strategia wybiera parę punktów kontrolnych o największym dystansie euklidesowym i wylicza `scaleX`, `scaleY`, `dx`, `dy`. Historyczna wartość `ANCHORS` jest traktowana jako alias tej strategii.
+- `AFFINE` - wymaga co najmniej trzech punktów kontrolnych i wylicza transformację afiniczną metodą najmniejszych kwadratów:
+
+```text
+x' = a*x + b*y + tx
+y' = c*x + d*y + ty
+```
+
+- `ROBUST_AFFINE` - wariant odporny na pojedyncze odstające kotwice. Dla wielu punktów kontrolnych testuje modele affine budowane z trójek punktów, wybiera model z najlepszym zbiorem inlierów i ponownie dopasowuje transformację na punktach zaakceptowanych. Przy remisie preferowana jest transformacja o mniejszym zniekształceniu względem identyczności.
+
+Trace geometrii zawiera:
+
+- `scaleX`, `scaleY`,
+- `translateX`, `translateY`,
+- `affineA`, `affineB`, `affineC`, `affineD`,
+- `usedControlPoints`,
+- `controlPointCount`,
+- `selectedPairDistance` dla strategii dwupunktowej.

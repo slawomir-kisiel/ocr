@@ -100,11 +100,11 @@ public final class GeometryPropertiesPanel implements DetailsPanel {
     private void configure() {
         installTooltip(referenceWidth, "Reference document width used by geometry normalization.");
         installTooltip(referenceHeight, "Reference document height used by geometry normalization.");
-        installTooltip(strategyType, "Geometry strategy type, for example NONE.");
+        installTooltip(strategyType, "Geometry strategy type.");
         installTooltip(strategyAnchors, "Comma-separated anchor IDs used by geometry strategy.");
         installTooltip(useDocumentDimensions, "Copy current document page dimensions to reference width and height.");
-        strategyType.getItems().setAll("NONE", "ANCHOR_TRANSLATION");
-        strategyType.setEditable(true);
+        strategyType.getItems().setAll("NONE", "ANCHOR_TRANSLATION", "TWO_POINT_SCALE_TRANSLATE", "AFFINE", "ROBUST_AFFINE");
+        strategyType.setEditable(false);
         warning.setWrapText(true);
         warning.setStyle("-fx-text-fill: #92400e;");
         addDraftListener(referenceWidth, this::applyGeometry);

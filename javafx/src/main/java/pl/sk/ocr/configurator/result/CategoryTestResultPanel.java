@@ -15,7 +15,12 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.Border;
+import javafx.scene.layout.BorderStroke;
+import javafx.scene.layout.BorderStrokeStyle;
+import javafx.scene.layout.BorderWidths;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.issue.ProcessingStage;
 import pl.sk.ocr.domain.issue.ProcessingIssue;
@@ -41,7 +46,8 @@ public final class CategoryTestResultPanel {
     private final ListView<String> issues = new ListView<>();
     private final ListView<String> traceDetails = new ListView<>();
     private final TableView<AnchorTraceRow> anchorTrace = new TableView<>();
-    private final Label geometryTransform = label("Transform: -");
+    private final Label transformMain = label("dx = -, dy = -, scaleX = -, scaleY = -");
+    private final Label transformAffine = label("affine - [a = -, b = -, c = -, d = -]");
     private final VBox root;
 
     public CategoryTestResultPanel(Supplier<DocumentResult> resultSupplier,
@@ -74,7 +80,7 @@ public final class CategoryTestResultPanel {
             fields,
             label("Geometry trace"),
             anchorTrace,
-            geometryTransform,
+            transformSummary(),
             label("Identification trace"),
             traceDetails,
             label("Errors / Warnings"),
@@ -134,7 +140,7 @@ public final class CategoryTestResultPanel {
             fields.getSelectionModel().clearSelection();
             anchorTrace.getItems().clear();
             anchorTrace.getSelectionModel().clearSelection();
-            geometryTransform.setText("Transform: -");
+            setTransformSummary(null);
             traceDetails.getItems().setAll("No trace entries");
             issues.getItems().setAll("No category test result");
             return;
@@ -149,7 +155,7 @@ public final class CategoryTestResultPanel {
         fields.getSelectionModel().clearSelection();
         anchorTrace.getItems().setAll(anchorTraceRows(result));
         anchorTrace.getSelectionModel().clearSelection();
-        geometryTransform.setText(geometryTransformText(result));
+        setTransformSummary(result);
         var traceTexts = traceTexts(result);
         traceDetails.getItems().setAll(traceTexts.isEmpty() ? List.of("No identification trace entries") : traceTexts);
         var issueTexts = issueTexts(result);
@@ -338,22 +344,45 @@ public final class CategoryTestResultPanel {
         dialog.showAndWait();
     }
 
-    private String geometryTransformText(DocumentResult result) {
-        if (result.trace() == null || result.trace().entries() == null) {
-            return "Transform: -";
+    private VBox transformSummary() {
+        var details = new VBox(2, transformMain, transformAffine);
+        details.setPadding(new javafx.geometry.Insets(0, 0, 0, 8));
+        details.setBorder(new Border(new BorderStroke(
+            Color.web("#9ca3af"),
+            BorderStrokeStyle.SOLID,
+            null,
+            new BorderWidths(0, 0, 0, 2)
+        )));
+        var box = new VBox(3, label("Transform:"), details);
+        box.setPadding(new javafx.geometry.Insets(2, 0, 2, 0));
+        return box;
+    }
+
+    private void setTransformSummary(DocumentResult result) {
+        if (result == null || result.trace() == null || result.trace().entries() == null) {
+            transformMain.setText("dx = -, dy = -, scaleX = -, scaleY = -");
+            transformAffine.setText("affine - [a = -, b = -, c = -, d = -]");
+            return;
         }
-        return result.trace().entries().stream()
+        var attributes = result.trace().entries().stream()
             .filter(entry -> entry.stage() == ProcessingStage.GEOMETRY_RESOLUTION)
             .findFirst()
-            .map(entry -> {
-                var attributes = entry.attributes();
-                return "Transform: dx=" + formatNumber(attributes.get("translateX"))
-                    + ", dy=" + formatNumber(attributes.get("translateY"))
-                    + ", scaleX=" + formatNumber(attributes.get("scaleX"))
-                    + ", scaleY=" + formatNumber(attributes.get("scaleY"))
-                    + ", affine=-";
-            })
-            .orElse("Transform: -");
+            .map(entry -> entry.attributes())
+            .orElse(null);
+        if (attributes == null) {
+            transformMain.setText("dx = -, dy = -, scaleX = -, scaleY = -");
+            transformAffine.setText("affine - [a = -, b = -, c = -, d = -]");
+            return;
+        }
+        transformMain.setText("dx = " + formatNumber(attributes.get("translateX"))
+            + ", dy = " + formatNumber(attributes.get("translateY"))
+            + ", scaleX = " + formatNumber(attributes.get("scaleX"))
+            + ", scaleY = " + formatNumber(attributes.get("scaleY")));
+        transformAffine.setText("affine - [a = " + formatNumber(attributes.get("affineA"))
+            + ", b = " + formatNumber(attributes.get("affineB"))
+            + ", c = " + formatNumber(attributes.get("affineC"))
+            + ", d = " + formatNumber(attributes.get("affineD"))
+            + "]");
     }
 
     private Region region(java.util.Map<String, Object> attributes, String prefix) {

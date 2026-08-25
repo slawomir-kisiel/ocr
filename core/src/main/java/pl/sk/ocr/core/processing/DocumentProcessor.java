@@ -224,6 +224,10 @@ public final class DocumentProcessor {
         attributes.put("scaleY", geometry.transform().scale().y());
         attributes.put("translateX", geometry.transform().translateX());
         attributes.put("translateY", geometry.transform().translateY());
+        attributes.put("affineA", geometry.transform().affineA());
+        attributes.put("affineB", geometry.transform().affineB());
+        attributes.put("affineC", geometry.transform().affineC());
+        attributes.put("affineD", geometry.transform().affineD());
         attributes.put("controlPointCount", geometry.usedControlPoints().size());
         if (geometry.selectedPairDistance() != null) {
             attributes.put("selectedPairDistance", geometry.selectedPairDistance());

@@ -65,6 +65,31 @@ class GeometryNormalizationServiceTest {
     }
 
     @Test
+    void twoPointScaleTranslateIsFormalStrategyName() {
+        var first = new AnchorId("first");
+        var second = new AnchorId("second");
+        var category = category(
+            List.of(
+                anchor(first, "text", new Region(10, 10, 20, 20), true),
+                anchor(second, "text", new Region(110, 210, 20, 20), true)
+            ),
+            "TWO_POINT_SCALE_TRANSLATE",
+            List.of(first, second)
+        );
+
+        var result = new GeometryNormalizationService().normalize(
+            category,
+            List.of(
+                new ReferenceFeature(first, new Region(20, 30, 40, 60), 1.0),
+                new ReferenceFeature(second, new Region(220, 430, 40, 60), 1.0)
+            )
+        );
+
+        assertThat(result.status()).isEqualTo(GeometryStatus.NORMALIZED);
+        assertThat(result.transform().map(new Region(10, 10, 20, 20))).isEqualTo(new Region(20, 30, 40, 40));
+    }
+
+    @Test
     void anchorTranslationUsesAverageDeltaFromAllDetectedControlPoints() {
         var first = new AnchorId("first");
         var second = new AnchorId("second");
@@ -115,6 +140,73 @@ class GeometryNormalizationServiceTest {
         assertThat(result.usedControlPoints())
             .extracting(GeometryNormalizationResult.ControlPoint::point)
             .containsExactly("TOP_LEFT", "BOTTOM_RIGHT");
+    }
+
+    @Test
+    void affineUsesThreeControlPoints() {
+        var first = new AnchorId("first");
+        var second = new AnchorId("second");
+        var third = new AnchorId("third");
+        var category = category(
+            List.of(
+                anchor(first, "text", new Region(0, 0, 20, 20), true),
+                anchor(second, "text", new Region(100, 0, 20, 20), true),
+                anchor(third, "text", new Region(0, 100, 20, 20), true)
+            ),
+            "AFFINE",
+            List.of(first, second, third)
+        );
+
+        var result = new GeometryNormalizationService().normalize(
+            category,
+            List.of(
+                new ReferenceFeature(first, new Region(10, 20, 20, 20), 1.0),
+                new ReferenceFeature(second, new Region(110, 20, 20, 20), 1.0),
+                new ReferenceFeature(third, new Region(60, 120, 20, 20), 1.0)
+            )
+        );
+
+        assertThat(result.status()).isEqualTo(GeometryStatus.NORMALIZED);
+        assertThat(result.transform().affineA()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.transform().affineB()).isCloseTo(0.5, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.transform().affineC()).isCloseTo(0.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.transform().affineD()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.transform().translateX()).isCloseTo(10.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.transform().translateY()).isCloseTo(20.0, org.assertj.core.data.Offset.offset(0.0001));
+    }
+
+    @Test
+    void robustAffineRejectsOutlierControlPoint() {
+        var first = new AnchorId("first");
+        var second = new AnchorId("second");
+        var third = new AnchorId("third");
+        var outlier = new AnchorId("outlier");
+        var category = category(
+            List.of(
+                anchor(first, "text", new Region(0, 0, 20, 20), true),
+                anchor(second, "text", new Region(100, 0, 20, 20), true),
+                anchor(third, "text", new Region(0, 100, 20, 20), true),
+                anchor(outlier, "text", new Region(100, 100, 20, 20), true)
+            ),
+            "ROBUST_AFFINE",
+            List.of(first, second, third, outlier)
+        );
+
+        var result = new GeometryNormalizationService().normalize(
+            category,
+            List.of(
+                new ReferenceFeature(first, new Region(10, 20, 20, 20), 1.0),
+                new ReferenceFeature(second, new Region(110, 20, 20, 20), 1.0),
+                new ReferenceFeature(third, new Region(10, 120, 20, 20), 1.0),
+                new ReferenceFeature(outlier, new Region(500, 500, 20, 20), 1.0)
+            )
+        );
+
+        assertThat(result.status()).isEqualTo(GeometryStatus.NORMALIZED);
+        var mapped = result.transform().map(new pl.sk.ocr.domain.geometry.Point(20, 30));
+        assertThat(mapped.x()).isCloseTo(30.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(mapped.y()).isCloseTo(50.0, org.assertj.core.data.Offset.offset(0.0001));
+        assertThat(result.usedAnchors()).containsExactly(first, second, third);
     }
 
     @Test

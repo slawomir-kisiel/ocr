@@ -235,6 +235,7 @@ public final class ConfiguratorApplication extends Application {
             }
         });
         stage.show();
+        Platform.runLater(this::openLastProfile);
     }
 
     @Override
@@ -559,6 +560,12 @@ public final class ConfiguratorApplication extends Application {
             closableTab("Validation/Trace", validationTraceScroll)
         );
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        restoreTabSelection(tabs, preferences.rightPanelTab());
+        tabs.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            if (selected != null) {
+                preferences.saveRightPanelTab(selected.getText());
+            }
+        });
         var right = new VBox(tabs);
         right.setPadding(new Insets(8));
         VBox.setVgrow(detailsScroll, Priority.ALWAYS);
@@ -602,6 +609,12 @@ public final class ConfiguratorApplication extends Application {
             closableTab("Categories", categoriesPane)
         );
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        restoreTabSelection(tabs, preferences.leftPanelTab());
+        tabs.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            if (selected != null) {
+                preferences.saveLeftPanelTab(selected.getText());
+            }
+        });
         var pane = new VBox(tabs);
         VBox.setVgrow(tabs, Priority.ALWAYS);
         VBox.setVgrow(configurationTree, Priority.ALWAYS);
@@ -613,6 +626,13 @@ public final class ConfiguratorApplication extends Application {
         var tab = new Tab(title, content);
         tab.setClosable(false);
         return tab;
+    }
+
+    private void restoreTabSelection(TabPane tabs, Optional<String> selectedTitle) {
+        selectedTitle.ifPresent(title -> tabs.getTabs().stream()
+            .filter(tab -> title.equals(tab.getText()))
+            .findFirst()
+            .ifPresent(tab -> tabs.getSelectionModel().select(tab)));
     }
 
     private void configureValidationTable() {
@@ -1147,10 +1167,25 @@ public final class ConfiguratorApplication extends Application {
         openProfilePath(path);
     }
 
+    private void openLastProfile() {
+        if (workspace.profilePath() != null || workspace.dirty()) {
+            return;
+        }
+        preferences.lastProfile().ifPresent(path -> {
+            try {
+                openProfilePath(path);
+            } catch (RuntimeException e) {
+                e.printStackTrace();
+                status.setText("Cannot open last profile: " + path.getFileName());
+            }
+        });
+    }
+
     private void openProfilePath(Path path) {
         runUiSafe(() -> {
             loadWorkspace(path);
             preferences.rememberRecentFile(RecentKey.PROFILE, path);
+            preferences.saveLastProfile(path);
             refreshAll();
         });
     }
@@ -1318,6 +1353,7 @@ public final class ConfiguratorApplication extends Application {
         fileService.saveProfile(profilePath, savedProfile);
         workspace.profilePath(profilePath);
         workspace.profile(savedProfile);
+        preferences.saveLastProfile(profilePath);
         workspace.markSaved();
         var selected = workspace.selectedCategory();
         if (selected != null) {

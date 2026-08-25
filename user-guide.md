@@ -330,24 +330,199 @@ Do usuwania widocznych ramek tabel można dodać image processor `im-remove-tabl
 1. W drzewie kategorii wybierz sekcję identyfikacji.
 2. Dodaj grupę identyfikacji.
 3. Dodaj warunek.
-4. Ustaw `Type`, `Page`, `Expected Text`, `Matcher ID` i `Detector ID`.
+4. Ustaw `Page`, `Detector`, `Matcher` i `Expected Text`.
 5. W sekcji `Search Region` narysuj region na podglądzie.
 6. Uruchom `Test Category`.
 
 Dla większych regionów tekstowych zwykle wygodniejszy jest matcher `contains` niż dokładne dopasowanie tekstu.
 
-Dla warunków `QR` i `BARCODE` należy wybrać odpowiednio detector `qr` albo `barcode`. `Expected Text` może być puste, jeżeli samo wykrycie kodu wystarcza do identyfikacji kategorii. Jeżeli wartość jest podana, porównywana jest z payloadem odczytanym z kodu, a `Search Region` ogranicza obszar dekodowania.
+Dla warunków tekstowych detector OCR jest źródłem treści. Dla warunków `QR` i `BARCODE` należy wybrać odpowiednio detector `qr` albo `barcode`. `Expected Text` może być puste, jeżeli samo wykrycie kodu wystarcza do identyfikacji kategorii. Jeżeli wartość jest podana, porównywana jest z payloadem odczytanym z kodu, a `Search Region` ogranicza obszar dekodowania.
+
+Parametry detectora i matchera są prezentowane bezpośrednio pod kontrolką, której dotyczą. Dzięki temu widać, czy dana opcja konfiguruje odczyt treści, czy sposób porównania. Gdy dla danego typu treści dostępny jest tylko jeden detector, pole wyboru detectora może być ukryte, ale jego wartość nadal wynika z konfiguracji warunku.
+
+Warunek identyfikacji działa według wspólnego modelu `Detector -> Matcher -> Expected Text`:
+
+1. `Detector` wybiera źródło treści, na przykład OCR tekstowy, QR albo barcode.
+2. `Search Region` ogranicza obszar działania detectora. Pusty region oznacza wyszukiwanie na całej stronie, jeżeli detector to obsługuje.
+3. Detector zwraca tekst oraz, jeśli jest dostępna, geometrię znalezionego elementu.
+4. `Matcher` porównuje tekst zwrócony przez detector z `Expected Text`.
+5. Jeżeli `Expected Text` jest puste, samo skuteczne wykrycie treści może wystarczyć do spełnienia warunku.
+
+Dla tekstu OCR dopasowanie anchorów i warunków korzysta z wyrazów OCR. Jeśli oczekiwany tekst ma więcej niż jeden wyraz, system szuka najkrótszej sekwencji kolejnych wyrazów spełniającej matcher i jako geometrię przyjmuje najmniejszy prostokąt obejmujący te wyrazy.
 
 ### 3.6. Konfiguracja anchor i geometrii
 
 1. Dodaj anchor w sekcji `Anchors`.
-2. Ustaw `Detector ID`.
+2. Ustaw `Detector`, `Matcher` i `Expected Text`.
 3. Narysuj `Search Region`, czyli obszar, w którym anchor ma być szukany.
 4. Narysuj `Reference Feature`, czyli wzorcowe położenie cechy anchor.
 5. Przejdź do `Geometry` i wybierz strategię geometrii.
 6. Uruchom `Test Category` i sprawdź warstwy anchor oraz diagnostykę.
 
 Anchor może korzystać z detectora `text`, `qr` albo `barcode`. Dla `qr` i `barcode` pozycja `Reference Feature` jest ustalana na podstawie geometrii kodu zwróconej przez ZXing, a puste współrzędne `Search Region` oznaczają szukanie na całej stronie.
+
+Anchor jest bardzo podobny do warunku identyfikacji, ale oprócz dopasowania treści dostarcza też geometrię do normalizacji dokumentu.
+
+Znaczenie pól anchor:
+
+| Pole | Opis |
+| ---- | ---- |
+| `Detector` | Mechanizm wyszukujący treść i geometrię, na przykład `text`, `qr`, `barcode` |
+| `Expected Text` | Oczekiwana treść anchoru; może być pusta, jeśli wystarczy samo wykrycie elementu |
+| `Matcher` | Sposób porównania treści, na przykład `contains` albo dokładne dopasowanie |
+| `Search Region` | Obszar, w którym anchor ma być szukany w dokumencie testowym lub produkcyjnym |
+| `Reference Feature` | Położenie tego samego obiektu w dokumencie wzorcowym |
+| `Required` | Określa, czy brak anchoru powinien blokować wyliczenie geometrii |
+
+Ważne rozróżnienie:
+
+- `Search Region` to miejsce szukania anchoru.
+- `Reference Feature` to wzorcowy prostokąt obiektu w dokumencie referencyjnym.
+- `Detected Bounds` to faktycznie znaleziony prostokąt obiektu w testowanym dokumencie.
+
+W `Validation/Trace` tabela `Geometry trace` pokazuje wszystkie anchory używane przez geometrię. Kolumna `Used` oznacza, które anchory albo punkty kontrolne weszły do finalnego obliczenia transformacji. Po zaznaczeniu wiersza na podglądzie dokumentu pokazywane są dwie ramki: obszar dopasowania oraz obszar szukania. Przycisk lupki w kolumnie `OCR` pokazuje tekst OCR z obszaru szukania, co pomaga diagnozować brak dopasowania.
+
+#### 3.6.1. Punkty kontrolne geometrii
+
+Geometria nie używa bezpośrednio całego prostokąta anchoru tekstowego do skalowania. Zamiast tego tworzy punkty kontrolne:
+
+| Typ anchoru | Punkty kontrolne |
+| ----------- | ---------------- |
+| `text` | `TOP_LEFT`, czyli lewy górny punkt dopasowanego tekstu |
+| `qr` | `TOP_LEFT` i `BOTTOM_RIGHT`, jeśli kod ma wystarczająco stabilny rozmiar |
+| `barcode` | `TOP_LEFT` i `BOTTOM_RIGHT`, jeśli kod ma wystarczająco stabilny rozmiar |
+
+Dla tekstu używany jest tylko lewy górny punkt, ponieważ szerokość i wysokość tekstu OCR mogą się zmieniać przez czcionkę, jakość skanu i granice słów. Dla QR i barcode prostokąt kodu jest zwykle stabilniejszy, więc pojedynczy kod może dostarczyć dwa punkty i pozwolić na skalowanie.
+
+#### 3.6.2. Strategie geometrii
+
+Strategia geometrii określa, jak z punktów kontrolnych wyliczana jest transformacja regionów pól.
+
+| Strategia | Minimalna liczba punktów | Co wylicza |
+| --------- | ------------------------ | ---------- |
+| `NONE` | 0 | Brak transformacji |
+| `ANCHOR_TRANSLATION` | 1 | Tylko przesunięcie `dx/dy` |
+| `TWO_POINT_SCALE_TRANSLATE` | 2 | Skalę `scaleX/scaleY` i przesunięcie `dx/dy` |
+| `AFFINE` | 3 | Transformację afiniczną `a,b,c,d,tx,ty` |
+| `ROBUST_AFFINE` | 4 lub więcej zalecane | Transformację afiniczną z odrzucaniem punktów odstających |
+
+Jeżeli strategia nie ma wystarczającej liczby punktów, system używa najlepszego dostępnego uproszczenia albo zgłasza problem, jeśli brakuje wymaganej kotwicy.
+
+#### 3.6.3. `NONE`
+
+Strategia `NONE` wyłącza normalizację geometrii. Regiony pól są używane dokładnie tak, jak zostały skonfigurowane względem obrazu po preprocessingu.
+
+Ta strategia jest właściwa, gdy:
+
+- dokumenty są zawsze wyrównane tak samo,
+- pola nie przesuwają się między skanami,
+- nie chcesz używać anchorów do przeliczania regionów.
+
+#### 3.6.4. `ANCHOR_TRANSLATION`
+
+Strategia `ANCHOR_TRANSLATION` wylicza tylko przesunięcie dokumentu.
+
+Działanie:
+
+1. System wykrywa anchory wskazane w konfiguracji geometrii.
+2. Z każdego wykrytego anchoru tworzy punkty kontrolne.
+3. Dla każdego punktu liczy różnicę pomiędzy pozycją wykrytą i referencyjną.
+4. Finalne `dx` i `dy` są średnią tych różnic.
+5. `scaleX` i `scaleY` pozostają równe `1.0`.
+
+W praktyce oznacza to, że wszystkie regiony pól są przesuwane o ten sam wektor. Nie zmienia się ich rozmiar.
+
+Ta strategia jest dobrym wyborem, gdy:
+
+- skany są przesunięte, ale nie są istotnie skalowane,
+- format dokumentu jest stały,
+- masz jedną albo kilka stabilnych kotwic tekstowych.
+
+#### 3.6.5. `TWO_POINT_SCALE_TRANSLATE`
+
+Strategia `TWO_POINT_SCALE_TRANSLATE` wylicza skalowanie i przesunięcie bez rotacji.
+
+Działanie:
+
+1. System buduje punkty kontrolne ze wszystkich wykrytych anchorów.
+2. Jeżeli dostępny jest jeden punkt, strategia zachowuje się jak translacja.
+3. Jeżeli dostępne są co najmniej dwa punkty, wybierana jest para o największym dystansie euklidesowym w dokumencie referencyjnym.
+4. Z tej pary liczona jest skala `scaleX`, `scaleY` oraz przesunięcie `dx`, `dy`.
+5. Regiony pól są skalowane i przesuwane.
+
+Para o największym dystansie jest wybierana dlatego, że błąd kilku pikseli ma wtedy mniejszy wpływ na wynikową skalę.
+
+Ta strategia jest dobrym wyborem, gdy:
+
+- dokument może być lekko większy albo mniejszy,
+- nie występuje istotny obrót,
+- masz dwie odległe kotwice tekstowe albo jeden stabilny QR/barcode.
+
+Historyczna wartość strategii `ANCHORS` jest traktowana jak alias `TWO_POINT_SCALE_TRANSLATE`.
+
+#### 3.6.6. `AFFINE`
+
+Strategia `AFFINE` wylicza transformację afiniczną:
+
+```text
+x' = a*x + b*y + tx
+y' = c*x + d*y + ty
+```
+
+Pozwala to modelować:
+
+- przesunięcie,
+- skalowanie,
+- obrót,
+- pochylenie / shear.
+
+Działanie:
+
+1. System wymaga co najmniej trzech punktów kontrolnych.
+2. Transformacja jest dopasowywana metodą najmniejszych kwadratów do wszystkich dostępnych punktów.
+3. Region pola jest przeliczany przez transformację narożników.
+4. Wynikiem dla pola nadal jest prostokąt osiowy obejmujący przetransformowane narożniki.
+
+Ta strategia jest dobrym wyborem, gdy:
+
+- skany mogą być lekko obrócone albo pochylone,
+- masz co najmniej trzy stabilne punkty kontrolne,
+- chcesz dokładniejszego dopasowania niż samo skalowanie i przesunięcie.
+
+#### 3.6.7. `ROBUST_AFFINE`
+
+Strategia `ROBUST_AFFINE` jest wariantem `AFFINE` odpornym na pojedyncze błędnie wykryte kotwice.
+
+Działanie:
+
+1. System buduje modele affine z różnych trójek punktów kontrolnych.
+2. Dla każdego modelu sprawdza, które punkty są zgodne z modelem.
+3. Punkty odstające są odrzucane.
+4. Finalna transformacja jest ponownie dopasowywana na punktach zaakceptowanych.
+5. Przy remisie preferowana jest transformacja mniej zniekształcona względem dokumentu referencyjnego.
+
+Ta strategia jest dobrym wyborem, gdy:
+
+- masz więcej niż trzy anchory,
+- część anchorów może czasem zostać błędnie rozpoznana,
+- zależy Ci na większej odporności diagnostycznej.
+
+`ROBUST_AFFINE` nie zastępuje poprawnej konfiguracji anchorów. Jeżeli większość anchorów jest błędna albo bardzo blisko siebie, wynik nadal może być niestabilny.
+
+#### 3.6.8. Diagnostyka transformacji
+
+Po `Test Category` zakładka `Validation/Trace` pokazuje pod tabelą `Geometry trace` podsumowanie transformacji:
+
+- `dx`, `dy` - przesunięcie,
+- `scaleX`, `scaleY` - skala wynikowa,
+- `affine[a,b,c,d]` - współczynniki macierzy affine.
+
+W trace dostępne są też:
+
+- `usedControlPoints`,
+- liczba punktów kontrolnych,
+- wybrana para punktów dla `TWO_POINT_SCALE_TRANSLATE`,
+- wszystkie wykryte i brakujące anchory.
 
 ### 3.7. Konfiguracja pola
 

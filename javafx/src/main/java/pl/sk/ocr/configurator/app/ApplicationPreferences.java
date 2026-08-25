@@ -54,6 +54,9 @@ public final class ApplicationPreferences {
     private static final String WINDOW_WIDTH = "windowWidth";
     private static final String WINDOW_HEIGHT = "windowHeight";
     private static final String WINDOW_MAXIMIZED = "windowMaximized";
+    private static final String LEFT_PANEL_TAB = "leftPanelTab";
+    private static final String RIGHT_PANEL_TAB = "rightPanelTab";
+    private static final String LAST_PROFILE = "lastProfile";
     private static final int RECENT_LIMIT = 10;
     private static final String DEFAULT_LANGUAGE = "pol";
     private static final int DEFAULT_DPI = 300;
@@ -124,6 +127,39 @@ public final class ApplicationPreferences {
         preferences.putDouble(WINDOW_WIDTH, state.width());
         preferences.putDouble(WINDOW_HEIGHT, state.height());
         preferences.putBoolean(WINDOW_MAXIMIZED, state.maximized());
+    }
+
+    public Optional<String> leftPanelTab() {
+        return Optional.ofNullable(blankToNull(preferences.get(LEFT_PANEL_TAB, "")));
+    }
+
+    public void saveLeftPanelTab(String tab) {
+        putNullable(LEFT_PANEL_TAB, tab);
+    }
+
+    public Optional<String> rightPanelTab() {
+        return Optional.ofNullable(blankToNull(preferences.get(RIGHT_PANEL_TAB, "")));
+    }
+
+    public void saveRightPanelTab(String tab) {
+        putNullable(RIGHT_PANEL_TAB, tab);
+    }
+
+    public Optional<Path> lastProfile() {
+        var value = blankToNull(preferences.get(LAST_PROFILE, ""));
+        if (value == null) {
+            return Optional.empty();
+        }
+        var path = Path.of(value);
+        return Files.isRegularFile(path) ? Optional.of(path) : Optional.empty();
+    }
+
+    public void saveLastProfile(Path profile) {
+        if (profile == null) {
+            preferences.remove(LAST_PROFILE);
+            return;
+        }
+        preferences.put(LAST_PROFILE, profile.toAbsolutePath().normalize().toString());
     }
 
     public Optional<Path> directory(DirectoryKey key) {

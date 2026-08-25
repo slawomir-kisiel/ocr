@@ -12,6 +12,7 @@ import pl.sk.ocr.domain.identifier.AnchorId;
 public final class GeometryNormalizationService {
     private static final double QR_BARCODE_MIN_SIZE = 16.0;
     private static final double AXIS_EPSILON = 1.0;
+    private static final double ROBUST_RESIDUAL_THRESHOLD = 5.0;
 
     public GeometryNormalizationResult normalize(CategoryRuntimeConfiguration category, List<ReferenceFeature> detectedFeatures) {
         var geometry = category.geometry();
@@ -29,9 +30,30 @@ public final class GeometryNormalizationService {
                 List.of()
             );
         }
-        if ("ANCHOR_TRANSLATION".equals(geometry.strategy())) {
+        var strategy = strategy(geometry.strategy());
+        if ("ANCHOR_TRANSLATION".equals(strategy)) {
             return translationFrom(controlPoints);
         }
+        if ("AFFINE".equals(strategy)) {
+            return affineFrom(controlPoints).orElseGet(() -> scaleTranslateFrom(controlPoints));
+        }
+        if ("ROBUST_AFFINE".equals(strategy)) {
+            return robustAffineFrom(controlPoints).orElseGet(() -> affineFrom(controlPoints).orElseGet(() -> scaleTranslateFrom(controlPoints)));
+        }
+        return scaleTranslateFrom(controlPoints);
+    }
+
+    private String strategy(String strategy) {
+        if (strategy == null || strategy.isBlank()) {
+            return "NONE";
+        }
+        if ("ANCHORS".equals(strategy)) {
+            return "TWO_POINT_SCALE_TRANSLATE";
+        }
+        return strategy;
+    }
+
+    private GeometryNormalizationResult scaleTranslateFrom(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
         if (controlPoints.size() == 1) {
             var point = controlPoints.getFirst();
             var transform = new Transform(
@@ -70,6 +92,167 @@ public final class GeometryNormalizationService {
             List.of(first, second),
             pair.referenceDistance()
         );
+    }
+
+    private java.util.Optional<GeometryNormalizationResult> affineFrom(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
+        if (controlPoints.size() < 3) {
+            return java.util.Optional.empty();
+        }
+        var coefficients = affineCoefficients(controlPoints);
+        if (coefficients.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        var transform = transform(coefficients.get());
+        return java.util.Optional.of(new GeometryNormalizationResult(
+            GeometryStatus.NORMALIZED,
+            transform,
+            usedAnchors(controlPoints),
+            controlPoints,
+            null
+        ));
+    }
+
+    private java.util.Optional<GeometryNormalizationResult> robustAffineFrom(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
+        if (controlPoints.size() < 4) {
+            return affineFrom(controlPoints);
+        }
+        RobustCandidate best = null;
+        for (int first = 0; first < controlPoints.size(); first++) {
+            for (int second = first + 1; second < controlPoints.size(); second++) {
+                for (int third = second + 1; third < controlPoints.size(); third++) {
+                    var seed = List.of(controlPoints.get(first), controlPoints.get(second), controlPoints.get(third));
+                    var coefficients = affineCoefficients(seed);
+                    if (coefficients.isEmpty()) {
+                        continue;
+                    }
+                    var candidate = robustCandidate(transform(coefficients.get()), coefficients.get(), controlPoints);
+                    if (best == null || candidate.betterThan(best)) {
+                        best = candidate;
+                    }
+                }
+            }
+        }
+        if (best == null || best.inliers().size() < 3) {
+            return java.util.Optional.empty();
+        }
+        if (best.inliers().size() == controlPoints.size()) {
+            return affineFrom(controlPoints);
+        }
+        return affineFrom(best.inliers());
+    }
+
+    private RobustCandidate robustCandidate(Transform transform, AffineCoefficients coefficients,
+                                            List<GeometryNormalizationResult.ControlPoint> controlPoints) {
+        var inliers = controlPoints.stream()
+            .filter(point -> residual(transform, point) <= ROBUST_RESIDUAL_THRESHOLD)
+            .toList();
+        var error = inliers.stream()
+            .mapToDouble(point -> residual(transform, point))
+            .average()
+            .orElse(Double.MAX_VALUE);
+        var totalError = controlPoints.stream()
+            .mapToDouble(point -> residual(transform, point))
+            .average()
+            .orElse(Double.MAX_VALUE);
+        var distortion = Math.abs(coefficients.a() - 1.0)
+            + Math.abs(coefficients.b())
+            + Math.abs(coefficients.c())
+            + Math.abs(coefficients.d() - 1.0);
+        return new RobustCandidate(inliers, error, totalError, distortion);
+    }
+
+    private java.util.Optional<AffineCoefficients> affineCoefficients(List<GeometryNormalizationResult.ControlPoint> points) {
+        var matrix = new double[3][3];
+        var targetX = new double[3];
+        var targetY = new double[3];
+        for (var point : points) {
+            var x = point.referenceX();
+            var y = point.referenceY();
+            var row = new double[] {x, y, 1.0};
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    matrix[i][j] += row[i] * row[j];
+                }
+                targetX[i] += row[i] * point.detectedX();
+                targetY[i] += row[i] * point.detectedY();
+            }
+        }
+        var xCoefficients = solve3(matrix, targetX);
+        var yCoefficients = solve3(matrix, targetY);
+        if (xCoefficients == null || yCoefficients == null) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new AffineCoefficients(
+            xCoefficients[0],
+            xCoefficients[1],
+            yCoefficients[0],
+            yCoefficients[1],
+            xCoefficients[2],
+            yCoefficients[2]
+        ));
+    }
+
+    private Transform transform(AffineCoefficients coefficients) {
+        var scaleX = Math.max(AXIS_EPSILON, Math.hypot(coefficients.a(), coefficients.c()));
+        var scaleY = Math.max(AXIS_EPSILON, Math.hypot(coefficients.b(), coefficients.d()));
+        return new Transform(
+            new Scale(scaleX, scaleY),
+            coefficients.tx(),
+            coefficients.ty(),
+            coefficients.a(),
+            coefficients.b(),
+            coefficients.c(),
+            coefficients.d()
+        );
+    }
+
+    private double residual(Transform transform, GeometryNormalizationResult.ControlPoint point) {
+        var mapped = transform.map(new pl.sk.ocr.domain.geometry.Point(point.referenceX(), point.referenceY()));
+        return Math.hypot(mapped.x() - point.detectedX(), mapped.y() - point.detectedY());
+    }
+
+    private double[] solve3(double[][] sourceMatrix, double[] sourceVector) {
+        var matrix = new double[3][3];
+        var vector = new double[3];
+        for (int i = 0; i < 3; i++) {
+            System.arraycopy(sourceMatrix[i], 0, matrix[i], 0, 3);
+            vector[i] = sourceVector[i];
+        }
+        for (int pivot = 0; pivot < 3; pivot++) {
+            var best = pivot;
+            for (int row = pivot + 1; row < 3; row++) {
+                if (Math.abs(matrix[row][pivot]) > Math.abs(matrix[best][pivot])) {
+                    best = row;
+                }
+            }
+            if (Math.abs(matrix[best][pivot]) < 0.000001) {
+                return null;
+            }
+            if (best != pivot) {
+                var tmpRow = matrix[pivot];
+                matrix[pivot] = matrix[best];
+                matrix[best] = tmpRow;
+                var tmpValue = vector[pivot];
+                vector[pivot] = vector[best];
+                vector[best] = tmpValue;
+            }
+            var divisor = matrix[pivot][pivot];
+            for (int column = pivot; column < 3; column++) {
+                matrix[pivot][column] /= divisor;
+            }
+            vector[pivot] /= divisor;
+            for (int row = 0; row < 3; row++) {
+                if (row == pivot) {
+                    continue;
+                }
+                var factor = matrix[row][pivot];
+                for (int column = pivot; column < 3; column++) {
+                    matrix[row][column] -= factor * matrix[pivot][column];
+                }
+                vector[row] -= factor * vector[pivot];
+            }
+        }
+        return vector;
     }
 
     private GeometryNormalizationResult translationFrom(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
@@ -186,6 +369,25 @@ public final class GeometryNormalizationService {
     ) {
         double referenceDistance() {
             return Math.hypot(second.referenceX() - first.referenceX(), second.referenceY() - first.referenceY());
+        }
+    }
+
+    private record AffineCoefficients(double a, double b, double c, double d, double tx, double ty) {
+    }
+
+    private record RobustCandidate(List<GeometryNormalizationResult.ControlPoint> inliers, double meanResidual, double totalMeanResidual,
+                                   double distortion) {
+        boolean betterThan(RobustCandidate other) {
+            if (inliers.size() != other.inliers().size()) {
+                return inliers.size() > other.inliers().size();
+            }
+            if (Math.abs(distortion - other.distortion()) > 0.000001) {
+                return distortion < other.distortion();
+            }
+            if (Math.abs(totalMeanResidual - other.totalMeanResidual()) > 0.000001) {
+                return totalMeanResidual < other.totalMeanResidual();
+            }
+            return meanResidual < other.meanResidual();
         }
     }
 }
