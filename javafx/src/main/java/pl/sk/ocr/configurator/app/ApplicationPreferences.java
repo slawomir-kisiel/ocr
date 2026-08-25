@@ -42,10 +42,18 @@ public final class ApplicationPreferences {
                            String lastOpenedDirectory, int cacheLimit) {
     }
 
+    public record WindowState(double x, double y, double width, double height, boolean maximized) {
+    }
+
     private static final String TESSERACT_DATAPATH = "tesseractDatapath";
     private static final String DEFAULT_OCR_LANGUAGE = "defaultOcrLanguage";
     private static final String DEFAULT_PDF_DPI = "defaultPdfDpi";
     private static final String CACHE_LIMIT = "cacheLimit";
+    private static final String WINDOW_X = "windowX";
+    private static final String WINDOW_Y = "windowY";
+    private static final String WINDOW_WIDTH = "windowWidth";
+    private static final String WINDOW_HEIGHT = "windowHeight";
+    private static final String WINDOW_MAXIMIZED = "windowMaximized";
     private static final int RECENT_LIMIT = 10;
     private static final String DEFAULT_LANGUAGE = "pol";
     private static final int DEFAULT_DPI = 300;
@@ -86,6 +94,36 @@ public final class ApplicationPreferences {
 
     public RenderOptions renderOptions() {
         return new RenderOptions(settings().defaultPdfDpi());
+    }
+
+    public Optional<WindowState> windowState() {
+        var width = preferences.getDouble(WINDOW_WIDTH, -1);
+        var height = preferences.getDouble(WINDOW_HEIGHT, -1);
+        if (width <= 0 || height <= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new WindowState(
+            preferences.getDouble(WINDOW_X, Double.NaN),
+            preferences.getDouble(WINDOW_Y, Double.NaN),
+            width,
+            height,
+            preferences.getBoolean(WINDOW_MAXIMIZED, false)
+        ));
+    }
+
+    public void saveWindowState(WindowState state) {
+        if (state == null || state.width() <= 0 || state.height() <= 0) {
+            return;
+        }
+        if (Double.isFinite(state.x())) {
+            preferences.putDouble(WINDOW_X, state.x());
+        }
+        if (Double.isFinite(state.y())) {
+            preferences.putDouble(WINDOW_Y, state.y());
+        }
+        preferences.putDouble(WINDOW_WIDTH, state.width());
+        preferences.putDouble(WINDOW_HEIGHT, state.height());
+        preferences.putBoolean(WINDOW_MAXIMIZED, state.maximized());
     }
 
     public Optional<Path> directory(DirectoryKey key) {

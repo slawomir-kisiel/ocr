@@ -156,6 +156,7 @@ public final class ConfiguratorApplication extends Application {
     private OcrExplorerRow selectedOcrExplorerRow;
     private FieldResult selectedFieldResult;
     private pl.sk.ocr.domain.geometry.Region selectedAnchorTraceRegion;
+    private pl.sk.ocr.domain.geometry.Region selectedAnchorTraceSearchRegion;
     private String pendingTreeSelectionId;
     private GeometryPropertiesPanel geometryPropertiesPanel;
     private AnchorPropertiesPanel anchorPropertiesPanel;
@@ -170,6 +171,10 @@ public final class ConfiguratorApplication extends Application {
     private CategoryTestResultPanel categoryTestResultPanel;
     private CategoryReferenceDocumentTestResult activeReferenceDocumentTestResult;
     private final ApplicationPreferences preferences = new ApplicationPreferences();
+    private double lastWindowX = Double.NaN;
+    private double lastWindowY = Double.NaN;
+    private double lastWindowWidth = 1280;
+    private double lastWindowHeight = 820;
 
     public static void main(String[] args) {
         launch(args);
@@ -220,9 +225,13 @@ public final class ConfiguratorApplication extends Application {
         var scene = new Scene(layout(stage), 1280, 820);
         configureAccelerators(scene, stage);
         stage.setScene(scene);
+        restoreWindowState(stage);
+        trackWindowState(stage);
         stage.setOnCloseRequest(event -> {
             if (!confirmUnsavedChanges(stage)) {
                 event.consume();
+            } else {
+                saveWindowState(stage);
             }
         });
         stage.show();
@@ -230,9 +239,59 @@ public final class ConfiguratorApplication extends Application {
 
     @Override
     public void stop() {
+        if (primaryStage != null) {
+            saveWindowState(primaryStage);
+        }
         if (services != null) {
             services.backgroundExecutor().close();
         }
+    }
+
+    private void restoreWindowState(Stage stage) {
+        preferences.windowState().ifPresent(state -> {
+            lastWindowX = state.x();
+            lastWindowY = state.y();
+            lastWindowWidth = state.width();
+            lastWindowHeight = state.height();
+            if (Double.isFinite(state.x())) {
+                stage.setX(state.x());
+            }
+            if (Double.isFinite(state.y())) {
+                stage.setY(state.y());
+            }
+            stage.setWidth(state.width());
+            stage.setHeight(state.height());
+            stage.setMaximized(state.maximized());
+        });
+    }
+
+    private void trackWindowState(Stage stage) {
+        stage.xProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+        stage.yProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+        stage.widthProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+        stage.heightProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+        stage.maximizedProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+        stage.iconifiedProperty().addListener((obs, old, value) -> rememberWindowBounds(stage));
+    }
+
+    private void rememberWindowBounds(Stage stage) {
+        if (stage.isMaximized() || stage.isIconified() || stage.getWidth() <= 0 || stage.getHeight() <= 0) {
+            return;
+        }
+        lastWindowX = stage.getX();
+        lastWindowY = stage.getY();
+        lastWindowWidth = stage.getWidth();
+        lastWindowHeight = stage.getHeight();
+    }
+
+    private void saveWindowState(Stage stage) {
+        preferences.saveWindowState(new ApplicationPreferences.WindowState(
+            lastWindowX,
+            lastWindowY,
+            lastWindowWidth,
+            lastWindowHeight,
+            stage.isMaximized()
+        ));
     }
 
     private BorderPane layout(Stage stage) {
@@ -2682,16 +2741,21 @@ public final class ConfiguratorApplication extends Application {
     }
 
     private void renderSelectedAnchorTraceOverlay() {
-        if (selectedAnchorTraceRegion == null) {
-            return;
+        if (selectedAnchorTraceSearchRegion != null) {
+            var search = domainRegionRectangle(selectedAnchorTraceSearchRegion, Color.color(0.93, 0.56, 0.12, 0.08), "#d97706", 2.0);
+            search.getStrokeDashArray().setAll(10.0, 5.0);
+            viewer.addOverlay(search);
         }
-        var rectangle = domainRegionRectangle(selectedAnchorTraceRegion, Color.color(0.12, 0.65, 0.38, 0.18), "#059669", 2.5);
-        rectangle.getStrokeDashArray().setAll(4.0, 4.0);
-        viewer.addOverlay(rectangle);
+        if (selectedAnchorTraceRegion != null) {
+            var rectangle = domainRegionRectangle(selectedAnchorTraceRegion, Color.color(0.12, 0.65, 0.38, 0.18), "#059669", 2.5);
+            rectangle.getStrokeDashArray().setAll(4.0, 4.0);
+            viewer.addOverlay(rectangle);
+        }
     }
 
-    private void selectAnchorTraceRegion(pl.sk.ocr.domain.geometry.Region region) {
-        selectedAnchorTraceRegion = region;
+    private void selectAnchorTraceRegion(CategoryTestResultPanel.AnchorTraceSelection selection) {
+        selectedAnchorTraceRegion = selection == null ? null : selection.detectedRegion();
+        selectedAnchorTraceSearchRegion = selection == null ? null : selection.searchRegion();
         renderOcrOverlay();
     }
 

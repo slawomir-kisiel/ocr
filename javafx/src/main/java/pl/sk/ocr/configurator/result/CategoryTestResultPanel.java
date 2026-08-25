@@ -4,11 +4,16 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.domain.geometry.Region;
@@ -24,7 +29,7 @@ public final class CategoryTestResultPanel {
     private final Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier;
     private final Consumer<CategoryReferenceDocumentTestResult> resultSelection;
     private final Consumer<FieldResult> fieldSelection;
-    private final Consumer<Region> anchorSelection;
+    private final Consumer<AnchorTraceSelection> anchorSelection;
     private final TableView<DocumentRow> documents = new TableView<>();
     private final Label document = label("Document: -");
     private final Label category = label("Category: -");
@@ -35,14 +40,15 @@ public final class CategoryTestResultPanel {
     private final TableView<FieldRow> fields = new TableView<>();
     private final ListView<String> issues = new ListView<>();
     private final ListView<String> traceDetails = new ListView<>();
-    private final ListView<AnchorTraceRow> anchorTrace = new ListView<>();
+    private final TableView<AnchorTraceRow> anchorTrace = new TableView<>();
+    private final Label geometryTransform = label("Transform: -");
     private final VBox root;
 
     public CategoryTestResultPanel(Supplier<DocumentResult> resultSupplier,
                                    Supplier<List<CategoryReferenceDocumentTestResult>> batchResultSupplier,
                                    Consumer<CategoryReferenceDocumentTestResult> resultSelection,
                                    Consumer<FieldResult> fieldSelection,
-                                   Consumer<Region> anchorSelection) {
+                                   Consumer<AnchorTraceSelection> anchorSelection) {
         this.resultSupplier = resultSupplier;
         this.batchResultSupplier = batchResultSupplier;
         this.resultSelection = resultSelection;
@@ -54,8 +60,7 @@ public final class CategoryTestResultPanel {
         issues.setCellFactory(list -> textCell());
         traceDetails.setPrefHeight(150);
         traceDetails.setCellFactory(list -> textCell());
-        anchorTrace.setPrefHeight(120);
-        anchorTrace.setCellFactory(list -> anchorTraceCell());
+        configureAnchorTrace();
         root = new VBox(6,
             label("Reference documents"),
             documents,
@@ -69,6 +74,7 @@ public final class CategoryTestResultPanel {
             fields,
             label("Geometry trace"),
             anchorTrace,
+            geometryTransform,
             label("Identification trace"),
             traceDetails,
             label("Errors / Warnings"),
@@ -88,7 +94,7 @@ public final class CategoryTestResultPanel {
         });
         anchorTrace.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
             if (anchorSelection != null) {
-                anchorSelection.accept(selected == null ? null : selected.bounds());
+                anchorSelection.accept(selected == null ? null : new AnchorTraceSelection(selected.bounds(), selected.searchRegion()));
             }
         });
         refresh();
@@ -128,6 +134,7 @@ public final class CategoryTestResultPanel {
             fields.getSelectionModel().clearSelection();
             anchorTrace.getItems().clear();
             anchorTrace.getSelectionModel().clearSelection();
+            geometryTransform.setText("Transform: -");
             traceDetails.getItems().setAll("No trace entries");
             issues.getItems().setAll("No category test result");
             return;
@@ -142,6 +149,7 @@ public final class CategoryTestResultPanel {
         fields.getSelectionModel().clearSelection();
         anchorTrace.getItems().setAll(anchorTraceRows(result));
         anchorTrace.getSelectionModel().clearSelection();
+        geometryTransform.setText(geometryTransformText(result));
         var traceTexts = traceTexts(result);
         traceDetails.getItems().setAll(traceTexts.isEmpty() ? List.of("No identification trace entries") : traceTexts);
         var issueTexts = issueTexts(result);
@@ -175,6 +183,25 @@ public final class CategoryTestResultPanel {
                 .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
     }
 
+    private void configureAnchorTrace() {
+        anchorTrace.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+        anchorTrace.setPrefHeight(150);
+        anchorTrace.getColumns().add(anchorColumn("Used", "usedMark", 60));
+        anchorTrace.getColumns().add(anchorColumn("Anchor", "anchorId", 140));
+        anchorTrace.getColumns().add(anchorColumn("Status", "status", 95));
+        anchorTrace.getColumns().add(anchorColumn("Required", "requiredMark", 85));
+        anchorTrace.getColumns().add(anchorColumn("Confidence", "confidence", 110));
+        anchorTrace.getColumns().add(anchorColumn("X", "x", 70));
+        anchorTrace.getColumns().add(anchorColumn("Y", "y", 70));
+        anchorTrace.getColumns().add(anchorColumn("W", "width", 70));
+        anchorTrace.getColumns().add(anchorColumn("H", "height", 70));
+        anchorTrace.getColumns().add(ocrColumn());
+        anchorTrace.setStyle(TEXT_COLOR_STYLE);
+        anchorTrace.skinProperty().addListener((obs, old, skin) ->
+            javafx.application.Platform.runLater(() -> anchorTrace.lookupAll(".column-header .label")
+                .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
+    }
+
     private TableColumn<FieldRow, String> column(String title, String property, double width) {
         var column = new TableColumn<FieldRow, String>(title);
         column.setCellValueFactory(new PropertyValueFactory<>(property));
@@ -188,6 +215,43 @@ public final class CategoryTestResultPanel {
         column.setCellValueFactory(new PropertyValueFactory<>(property));
         column.setStyle(TEXT_COLOR_STYLE);
         column.setPrefWidth(width);
+        return column;
+    }
+
+    private TableColumn<AnchorTraceRow, String> anchorColumn(String title, String property, double width) {
+        var column = new TableColumn<AnchorTraceRow, String>(title);
+        column.setCellValueFactory(new PropertyValueFactory<>(property));
+        column.setStyle(TEXT_COLOR_STYLE);
+        column.setPrefWidth(width);
+        return column;
+    }
+
+    private TableColumn<AnchorTraceRow, Void> ocrColumn() {
+        var column = new TableColumn<AnchorTraceRow, Void>("OCR");
+        column.setPrefWidth(70);
+        column.setCellFactory(table -> new TableCell<>() {
+            private final Button button = new Button("🔍");
+
+            {
+                button.setTooltip(new javafx.scene.control.Tooltip("Show OCR text"));
+                button.setOnAction(event -> {
+                    var row = getTableView().getItems().get(getIndex());
+                    showOcrDialog(row);
+                });
+            }
+
+            @Override
+            protected void updateItem(Void item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getIndex() < 0 || getIndex() >= getTableView().getItems().size()) {
+                    setGraphic(null);
+                    return;
+                }
+                var row = getTableView().getItems().get(getIndex());
+                button.setDisable(row.ocrText() == null || row.ocrText().isBlank());
+                setGraphic(button);
+            }
+        });
         return column;
     }
 
@@ -244,17 +308,52 @@ public final class CategoryTestResultPanel {
             .map(entry -> {
                 var attributes = entry.attributes();
                 var bounds = region(attributes, "detected");
-                if (bounds == null) {
-                    return null;
-                }
+                var searchRegion = region(attributes, "search");
                 return new AnchorTraceRow(
                     String.valueOf(attributes.getOrDefault("anchorId", "")),
+                    booleanValue(attributes.get("matched")),
+                    booleanValue(attributes.get("used")),
+                    booleanValue(attributes.get("required")),
                     String.valueOf(attributes.getOrDefault("confidence", "")),
-                    bounds
+                    bounds,
+                    searchRegion,
+                    String.valueOf(attributes.getOrDefault("ocrTextInSearchRegion", ""))
                 );
             })
             .filter(java.util.Objects::nonNull)
             .toList();
+    }
+
+    private void showOcrDialog(AnchorTraceRow row) {
+        var dialog = new Dialog<Void>();
+        dialog.setTitle("Anchor OCR");
+        dialog.setHeaderText("Anchor: " + row.anchorId());
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.getDialogPane().setPrefSize(640, 420);
+        var text = new TextArea(row.ocrText() == null ? "" : row.ocrText());
+        text.setEditable(false);
+        text.setWrapText(true);
+        text.setStyle(TEXT_COLOR_STYLE);
+        dialog.getDialogPane().setContent(text);
+        dialog.showAndWait();
+    }
+
+    private String geometryTransformText(DocumentResult result) {
+        if (result.trace() == null || result.trace().entries() == null) {
+            return "Transform: -";
+        }
+        return result.trace().entries().stream()
+            .filter(entry -> entry.stage() == ProcessingStage.GEOMETRY_RESOLUTION)
+            .findFirst()
+            .map(entry -> {
+                var attributes = entry.attributes();
+                return "Transform: dx=" + formatNumber(attributes.get("translateX"))
+                    + ", dy=" + formatNumber(attributes.get("translateY"))
+                    + ", scaleX=" + formatNumber(attributes.get("scaleX"))
+                    + ", scaleY=" + formatNumber(attributes.get("scaleY"))
+                    + ", affine=-";
+            })
+            .orElse("Transform: -");
     }
 
     private Region region(java.util.Map<String, Object> attributes, String prefix) {
@@ -283,6 +382,24 @@ public final class CategoryTestResultPanel {
             }
         }
         return null;
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return value instanceof String text && Boolean.parseBoolean(text);
+    }
+
+    private String formatNumber(Object value) {
+        var number = number(value);
+        if (number == null) {
+            return "-";
+        }
+        if (Math.abs(number - Math.rint(number)) < 0.0001) {
+            return String.valueOf(Math.round(number));
+        }
+        return String.format(java.util.Locale.ROOT, "%.4f", number);
     }
 
     private boolean isIdentificationConditionTrace(java.util.Map<String, Object> attributes) {
@@ -315,25 +432,52 @@ public final class CategoryTestResultPanel {
         };
     }
 
-    private static ListCell<AnchorTraceRow> anchorTraceCell() {
-        return new ListCell<>() {
-            @Override
-            protected void updateItem(AnchorTraceRow item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.label());
-                setStyle(TEXT_COLOR_STYLE);
-            }
-        };
+    public record AnchorTraceSelection(Region detectedRegion, Region searchRegion) {
     }
 
-    public record AnchorTraceRow(String anchorId, String confidence, Region bounds) {
-        String label() {
-            return "anchor=" + anchorId
-                + " | confidence=" + confidence
-                + " | x=" + Math.round(bounds.x())
-                + ", y=" + Math.round(bounds.y())
-                + ", w=" + Math.round(bounds.width())
-                + ", h=" + Math.round(bounds.height());
+    public record AnchorTraceRow(String anchorId, boolean matched, boolean used, boolean required, String confidence, Region bounds,
+                                 Region searchRegion, String ocrText) {
+        public String getUsedMark() {
+            return used ? "✓" : "";
+        }
+
+        public String getAnchorId() {
+            return anchorId;
+        }
+
+        public String getStatus() {
+            return matched ? "MATCHED" : "MISSING";
+        }
+
+        public String getRequiredMark() {
+            return required ? "true" : "";
+        }
+
+        public String getConfidence() {
+            return confidence;
+        }
+
+        public String getX() {
+            return coordinate(bounds == null ? null : bounds.x());
+        }
+
+        public String getY() {
+            return coordinate(bounds == null ? null : bounds.y());
+        }
+
+        public String getWidth() {
+            return coordinate(bounds == null ? null : bounds.width());
+        }
+
+        public String getHeight() {
+            return coordinate(bounds == null ? null : bounds.height());
+        }
+
+        private String coordinate(Double value) {
+            if (value == null) {
+                return "";
+            }
+            return String.valueOf(Math.round(value));
         }
     }
 

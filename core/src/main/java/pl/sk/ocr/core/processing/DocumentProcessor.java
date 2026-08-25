@@ -111,7 +111,7 @@ public final class DocumentProcessor {
             }
             var referenceFeatures = anchorDetectionService.detect(category, pageOcr, firstPage);
             var geometry = geometryNormalizationService.normalize(category, referenceFeatures);
-            traceEntries.addAll(anchorTrace(category, referenceFeatures));
+            traceEntries.addAll(anchorTrace(category, referenceFeatures, geometry, pageOcr));
             traceEntries.add(geometryTrace(category, geometry, referenceFeatures));
             if (geometry.status() == GeometryStatus.FAILED) {
                 var issue = ProcessingIssue.error(
@@ -174,17 +174,39 @@ public final class DocumentProcessor {
         return stages;
     }
 
-    private List<TraceEntry> anchorTrace(CategoryRuntimeConfiguration category, List<ReferenceFeature> referenceFeatures) {
-        return referenceFeatures.stream()
-            .map(feature -> {
+    private List<TraceEntry> anchorTrace(CategoryRuntimeConfiguration category, List<ReferenceFeature> referenceFeatures,
+                                         GeometryNormalizationResult geometry, pl.sk.ocr.domain.ocr.OcrText pageOcr) {
+        var geometryAnchorIds = category.geometry() == null ? List.<pl.sk.ocr.domain.identifier.AnchorId>of() : category.geometry().anchors();
+        var usedAnchorIds = geometry.usedAnchors();
+        return geometryAnchorIds.stream()
+            .map(anchorId -> {
+                var anchor = category.anchors().stream()
+                    .filter(candidate -> candidate.id().equals(anchorId))
+                    .findFirst();
+                var feature = referenceFeatures.stream()
+                    .filter(candidate -> candidate.anchorId().equals(anchorId))
+                    .findFirst();
                 var attributes = new java.util.LinkedHashMap<String, Object>();
                 attributes.put("categoryId", category.id().value());
-                attributes.put("anchorId", feature.anchorId().value());
-                attributes.put("confidence", feature.confidence());
-                putRegion(attributes, "detected", feature.bounds());
+                attributes.put("anchorId", anchorId.value());
+                attributes.put("matched", feature.isPresent());
+                attributes.put("used", usedAnchorIds.contains(anchorId));
+                anchor.ifPresent(definition -> {
+                    attributes.put("required", definition.required());
+                    attributes.put("detectorId", definition.detector() == null ? "" : definition.detector().id().value());
+                    attributes.put("matcherId", definition.matcher() == null ? "" : definition.matcher().id().value());
+                    attributes.put("expectedText", definition.expectedText());
+                    putRegion(attributes, "reference", definition.bounds());
+                    putRegion(attributes, "search", definition.searchRegion());
+                    attributes.put("ocrTextInSearchRegion", detectorText(pageOcr, definition.searchRegion()));
+                });
+                feature.ifPresent(detected -> {
+                    attributes.put("confidence", detected.confidence());
+                    putRegion(attributes, "detected", detected.bounds());
+                });
                 return new TraceEntry(
                     ProcessingStage.ANCHOR_DETECTION,
-                    "Anchor detected: " + feature.anchorId().value(),
+                    feature.isPresent() ? "Anchor detected: " + anchorId.value() : "Anchor missing: " + anchorId.value(),
                     attributes,
                     List.of()
                 );

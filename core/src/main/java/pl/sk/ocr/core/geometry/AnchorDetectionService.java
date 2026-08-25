@@ -104,10 +104,16 @@ public final class AnchorDetectionService {
                 .findFirst()
                 .map(word -> new AnchorMatch(word.boundingBox().region(), word.confidence().value()));
         }
-        return text.words().stream()
-            .filter(word -> matches(anchor, expected, word.text()))
-            .findFirst()
-            .map(word -> new AnchorMatch(word.boundingBox().region(), word.confidence().value()));
+        var words = text.words();
+        for (int length = 1; length <= words.size(); length++) {
+            for (int start = 0; start + length <= words.size(); start++) {
+                var candidate = words.subList(start, start + length);
+                if (matches(anchor, expected, phrase(candidate))) {
+                    return Optional.of(new AnchorMatch(bounds(candidate), confidence(candidate)));
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private boolean matches(AnchorDefinition anchor, String expected, String actual) {
@@ -133,6 +139,35 @@ public final class AnchorDetectionService {
             return region;
         }
         return new Region(region.x() + searchRegion.x(), region.y() + searchRegion.y(), region.width(), region.height());
+    }
+
+    private String phrase(List<pl.sk.ocr.domain.ocr.OcrWord> words) {
+        return words.stream()
+            .map(pl.sk.ocr.domain.ocr.OcrWord::text)
+            .reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+    }
+
+    private Region bounds(List<pl.sk.ocr.domain.ocr.OcrWord> words) {
+        var first = words.getFirst().boundingBox().region();
+        var minX = first.x();
+        var minY = first.y();
+        var maxX = first.x() + first.width();
+        var maxY = first.y() + first.height();
+        for (var word : words) {
+            var region = word.boundingBox().region();
+            minX = Math.min(minX, region.x());
+            minY = Math.min(minY, region.y());
+            maxX = Math.max(maxX, region.x() + region.width());
+            maxY = Math.max(maxY, region.y() + region.height());
+        }
+        return new Region(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    private double confidence(List<pl.sk.ocr.domain.ocr.OcrWord> words) {
+        return words.stream()
+            .mapToDouble(word -> word.confidence().value())
+            .average()
+            .orElse(0.0);
     }
 
     private static String normalize(String value) {

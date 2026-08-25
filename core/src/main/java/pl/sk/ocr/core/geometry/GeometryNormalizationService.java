@@ -29,6 +29,9 @@ public final class GeometryNormalizationService {
                 List.of()
             );
         }
+        if ("ANCHOR_TRANSLATION".equals(geometry.strategy())) {
+            return translationFrom(controlPoints);
+        }
         if (controlPoints.size() == 1) {
             var point = controlPoints.getFirst();
             var transform = new Transform(
@@ -66,6 +69,24 @@ public final class GeometryNormalizationService {
             usedAnchors(first, second),
             List.of(first, second),
             pair.referenceDistance()
+        );
+    }
+
+    private GeometryNormalizationResult translationFrom(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
+        var translateX = controlPoints.stream()
+            .mapToDouble(point -> point.detectedX() - point.referenceX())
+            .average()
+            .orElse(0.0);
+        var translateY = controlPoints.stream()
+            .mapToDouble(point -> point.detectedY() - point.referenceY())
+            .average()
+            .orElse(0.0);
+        return new GeometryNormalizationResult(
+            GeometryStatus.NORMALIZED,
+            new Transform(Scale.IDENTITY, translateX, translateY),
+            usedAnchors(controlPoints),
+            controlPoints,
+            null
         );
     }
 
@@ -150,6 +171,12 @@ public final class GeometryNormalizationService {
         var ids = new LinkedHashSet<AnchorId>();
         ids.add(first.anchorId());
         ids.add(second.anchorId());
+        return List.copyOf(ids);
+    }
+
+    private List<AnchorId> usedAnchors(List<GeometryNormalizationResult.ControlPoint> controlPoints) {
+        var ids = new LinkedHashSet<AnchorId>();
+        controlPoints.stream().map(GeometryNormalizationResult.ControlPoint::anchorId).forEach(ids::add);
         return List.copyOf(ids);
     }
 

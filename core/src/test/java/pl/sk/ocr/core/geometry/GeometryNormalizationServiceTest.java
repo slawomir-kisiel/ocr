@@ -65,6 +65,39 @@ class GeometryNormalizationServiceTest {
     }
 
     @Test
+    void anchorTranslationUsesAverageDeltaFromAllDetectedControlPoints() {
+        var first = new AnchorId("first");
+        var second = new AnchorId("second");
+        var third = new AnchorId("third");
+        var category = category(
+            List.of(
+                anchor(first, "text", new Region(10, 10, 20, 20), true),
+                anchor(second, "text", new Region(100, 10, 20, 20), true),
+                anchor(third, "text", new Region(10, 100, 20, 20), true)
+            ),
+            "ANCHOR_TRANSLATION",
+            List.of(first, second, third)
+        );
+
+        var result = new GeometryNormalizationService().normalize(
+            category,
+            List.of(
+                new ReferenceFeature(first, new Region(20, 30, 20, 20), 1.0),
+                new ReferenceFeature(second, new Region(111, 31, 20, 20), 1.0),
+                new ReferenceFeature(third, new Region(19, 128, 20, 20), 1.0)
+            )
+        );
+
+        assertThat(result.status()).isEqualTo(GeometryStatus.NORMALIZED);
+        assertThat(result.transform().scale().x()).isEqualTo(1.0);
+        assertThat(result.transform().scale().y()).isEqualTo(1.0);
+        assertThat(result.transform().translateX()).isEqualTo(10.0);
+        assertThat(result.transform().translateY()).isEqualTo(23.0);
+        assertThat(result.usedAnchors()).containsExactly(first, second, third);
+        assertThat(result.usedControlPoints()).hasSize(3);
+    }
+
+    @Test
     void usesQrBottomRightAsSecondControlPoint() {
         var anchorId = new AnchorId("qr");
         var category = category(List.of(anchor(anchorId, "qr", new Region(10, 20, 100, 50), true)), List.of(anchorId));
@@ -125,13 +158,17 @@ class GeometryNormalizationServiceTest {
     }
 
     private CategoryRuntimeConfiguration category(List<AnchorDefinition> anchors, List<AnchorId> geometryAnchors) {
+        return category(anchors, "ANCHORS", geometryAnchors);
+    }
+
+    private CategoryRuntimeConfiguration category(List<AnchorDefinition> anchors, String strategy, List<AnchorId> geometryAnchors) {
         return new CategoryRuntimeConfiguration(
             new CategoryId("invoice-a"),
             new ConfigurationVersion("1.0"),
             "Invoice",
             new SinglePageSelection(1),
             OcrSettings.defaults(),
-            new GeometryConfiguration(100, 100, "ANCHORS", geometryAnchors),
+            new GeometryConfiguration(100, 100, strategy, geometryAnchors),
             List.of(),
             anchors,
             List.of()
