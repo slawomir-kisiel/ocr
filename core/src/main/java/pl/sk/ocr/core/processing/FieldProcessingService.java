@@ -20,6 +20,9 @@ import pl.sk.ocr.domain.result.ProcessingStatus;
 import pl.sk.ocr.extension.api.Extension;
 import pl.sk.ocr.extension.api.ExtensionParameters;
 import pl.sk.ocr.extension.api.ExtensionRegistry;
+import pl.sk.ocr.extension.api.detector.DetectionRequest;
+import pl.sk.ocr.extension.api.detector.DetectionStatus;
+import pl.sk.ocr.extension.api.detector.Detector;
 import pl.sk.ocr.extension.api.image.ImageProcessingRequest;
 import pl.sk.ocr.extension.api.image.ImageProcessor;
 import pl.sk.ocr.extension.api.image.ProcessingImage;
@@ -57,7 +60,7 @@ public final class FieldProcessingService {
             processorIndex++;
         }
         steps.add(new ImageTraceStep("OCR input", currentImage));
-        return new FieldProcessingPreview(List.copyOf(steps), ocrEngine.recognize(currentImage, options(field.ocr())));
+        return new FieldProcessingPreview(List.copyOf(steps), recognize(currentImage, field));
     }
 
     public FieldResult extract(FieldDefinition field, ProcessingImage pageImage, Transform transform) {
@@ -84,7 +87,7 @@ public final class FieldProcessingService {
 
         String value;
         try {
-            value = ocrEngine.recognize(currentImage, options(field.ocr())).value();
+            value = recognize(currentImage, field).value();
         } catch (RuntimeException e) {
             return failed(field, issues, "FIELD_OCR_FAILED", ProcessingStage.FIELD_OCR, e, resolvedRegion);
         }
@@ -135,6 +138,26 @@ public final class FieldProcessingService {
 
     private ImageProcessor imageProcessor(ExtensionRef ref) {
         return require(ref, ImageProcessor.class, "IMAGE_PROCESSING_FAILED");
+    }
+
+    private OcrText recognize(ProcessingImage image, FieldDefinition field) {
+        var detector = field.ocr() == null ? null : field.ocr().detector();
+        if (detector == null || detector.id() == null
+            || detector.id().value() == null
+            || detector.id().value().isBlank()
+            || "ocr".equals(detector.id().value())
+            || "text".equals(detector.id().value())) {
+            return ocrEngine.recognize(image, options(field.ocr()));
+        }
+        var extension = require(detector, Detector.class, "FIELD_DETECTION_FAILED");
+        var result = extension.detect(new DetectionRequest(image, "", parameters(detector)), () -> TraceSink.NOOP);
+        if (result.status() != DetectionStatus.DETECTED) {
+            return new OcrText("", List.of());
+        }
+        var text = result.text();
+        return text.value().isBlank() && !text.textFromWords().isBlank()
+            ? new OcrText(text.textFromWords(), text.hocr(), text.areas())
+            : text;
     }
 
     private Validator validator(ExtensionRef ref) {

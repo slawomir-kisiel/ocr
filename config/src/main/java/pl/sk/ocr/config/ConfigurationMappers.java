@@ -92,7 +92,11 @@ final class ConfigurationMappers {
         if (dto == null) {
             return defaults;
         }
-        return new OcrSettings(dto.language() == null ? defaults.language() : dto.language(), dto.datapath() == null ? defaults.datapath() : dto.datapath());
+        return new OcrSettings(
+            dto.language() == null ? defaults.language() : dto.language(),
+            dto.datapath() == null ? defaults.datapath() : dto.datapath(),
+            dto.detector() == null ? defaults.detector() : extension(dto.detector())
+        );
     }
 
     private static PageSelection pages(PageSelectionDto dto) {

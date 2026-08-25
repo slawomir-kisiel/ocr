@@ -22,6 +22,7 @@ import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.AnchorDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.FieldDto;
+import pl.sk.ocr.config.dto.OcrSettingsDto;
 import pl.sk.ocr.config.dto.OutputDto;
 import pl.sk.ocr.config.dto.RegionDto;
 import pl.sk.ocr.configurator.viewmodel.CategoryEditorViewModel;
@@ -52,6 +53,9 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private final CheckBox fieldRequired = new CheckBox();
     private final CheckBox outputExported = new CheckBox();
     private final TextField outputColumnName = new TextField();
+    private final ComboBox<String> ocrDetector = new ComboBox<>();
+    private final TextField ocrLanguage = new TextField();
+    private final TextField ocrDatapath = new TextField();
     private final Spinner<Integer> fieldRegionX = regionSpinner();
     private final Spinner<Integer> fieldRegionY = regionSpinner();
     private final Spinner<Integer> fieldRegionWidth = regionSpinner();
@@ -89,6 +93,10 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         var selected = selection.get();
         if (selected.type() == SelectionType.FIELD && selectedField() != null) {
             fieldControls(section, selected.fieldIndex());
+        } else if (selected.type() == SelectionType.FIELD_OCR && selectedField() != null) {
+            ocrControls(section, selected.fieldIndex());
+        } else if (selected.type() == SelectionType.FIELD_OUTPUT && selectedField() != null) {
+            outputControls(section, selected.fieldIndex());
         } else if (selected.type().isPipeline()) {
             pipelineControls(section, selected);
         } else {
@@ -112,6 +120,10 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             var output = field == null ? null : field.output();
             outputExported.setSelected(output != null && Boolean.TRUE.equals(output.exported()));
             outputColumnName.setText(output == null ? "" : nullToEmpty(output.columnName()));
+            var ocr = field == null ? null : field.ocr();
+            ocrDetector.setValue(ocrDetectorId(ocr));
+            ocrLanguage.setText(ocr == null ? "" : nullToEmpty(ocr.language()));
+            ocrDatapath.setText(ocr == null ? "" : nullToEmpty(ocr.datapath()));
             var region = field == null ? null : field.region();
             setRegionSpinnerText(fieldRegionX, region == null ? "" : formatRegionNumber(region.x()));
             setRegionSpinnerText(fieldRegionY, region == null ? "" : formatRegionNumber(region.y()));
@@ -155,6 +167,9 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         installTooltip(fieldRequired, "Whether missing or invalid field value should fail processing.");
         installTooltip(outputExported, "Whether this field should be included in exported output.");
         installTooltip(outputColumnName, "Output column name used when the field is exported.");
+        installTooltip(ocrDetector, "How the field value should be read from the resolved region.");
+        installTooltip(ocrLanguage, "OCR language used by the OCR detector.");
+        installTooltip(ocrDatapath, "Tesseract tessdata directory used by the OCR detector.");
         installTooltip(fieldRegionX, "Field region X coordinate in image/reference coordinates.");
         installTooltip(fieldRegionY, "Field region Y coordinate in image/reference coordinates.");
         installTooltip(fieldRegionWidth, "Field region width in image/reference coordinates.");
@@ -172,6 +187,11 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         fieldRequired.selectedProperty().addListener((obs, old, value) -> applySelectedField());
         outputExported.selectedProperty().addListener((obs, old, value) -> applySelectedField());
         addDraftListener(outputColumnName, this::applySelectedField);
+        ocrDetector.getItems().setAll(detectorIds());
+        ocrDetector.setEditable(false);
+        ocrDetector.valueProperty().addListener((obs, old, value) -> applySelectedFieldOcr(!java.util.Objects.equals(old, value)));
+        addDraftListener(ocrLanguage, () -> applySelectedFieldOcr(false));
+        addDraftListener(ocrDatapath, () -> applySelectedFieldOcr(false));
         addSpinnerListener(fieldRegionX, this::applySelectedField);
         addSpinnerListener(fieldRegionY, this::applySelectedField);
         addSpinnerListener(fieldRegionWidth, this::applySelectedField);
@@ -198,11 +218,6 @@ public final class FieldPropertiesPanel implements DetailsPanel {
 
         section.getChildren().add(titledPane("Reference Anchors", referenceAnchorsContent(fieldIndex)));
 
-        var outputContent = new VBox(8);
-        addFormRow(outputContent, "Exported", outputExported);
-        addFormRow(outputContent, "Column Name", outputColumnName);
-        section.getChildren().add(titledPane("Output", outputContent));
-
         var add = iconButton("plus.svg", "Add field", this::addField);
         var copy = iconButton("copy.svg", "Copy field", () -> copyField(fieldIndex));
         var moveUp = iconButton("angle-up.svg", "Move field up", () -> moveField(fieldIndex, fieldIndex - 1));
@@ -211,6 +226,24 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         moveUp.setDisable(fieldIndex <= 0);
         moveDown.setDisable(fieldIndex >= fields.get().size() - 1);
         section.getChildren().add(new HBox(8, add, copy, moveUp, moveDown, remove));
+    }
+
+    private void ocrControls(VBox section, int fieldIndex) {
+        var field = field(fieldIndex);
+        var ocrContent = new VBox(8);
+        addFormRow(ocrContent, "Detector", ocrDetector);
+        var parameters = detectorParameters(fieldIndex, field);
+        if (parameters != null) {
+            ocrContent.getChildren().add(parameters);
+        }
+        section.getChildren().add(titledPane("OCR", ocrContent));
+    }
+
+    private void outputControls(VBox section, int fieldIndex) {
+        var outputContent = new VBox(8);
+        addFormRow(outputContent, "Exported", outputExported);
+        addFormRow(outputContent, "Column Name", outputColumnName);
+        section.getChildren().add(titledPane("Output", outputContent));
     }
 
     private Button button(String text, Runnable action) {
@@ -266,6 +299,21 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         box.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(parameters, Priority.ALWAYS);
         return box;
+    }
+
+    private Node detectorParameters(int fieldIndex, FieldDto field) {
+        var ocr = field == null ? null : field.ocr();
+        if (usesOcrDetector(ocr)) {
+            var parameters = new VBox(4);
+            addFormRow(parameters, "Language", ocrLanguage);
+            addFormRow(parameters, "Datapath", ocrDatapath);
+            return new HBox(8, parameterGuideLine(), parameters);
+        }
+        var detector = ocr == null ? null : ocr.detector();
+        if (!parametersForm.hasParameters(detector, ExtensionType.DETECTOR)) {
+            return null;
+        }
+        return indentedParameters(detector, ExtensionType.DETECTOR, ref -> replaceFieldOcrDetector(fieldIndex, ref));
     }
 
     private Node parameterGuideLine() {
@@ -440,6 +488,74 @@ public final class FieldPropertiesPanel implements DetailsPanel {
             list(current.referenceAnchorIds()), list(current.imageProcessors()), list(current.transformers()), list(current.validators())));
         pendingSelection.accept("field." + index);
         afterChange.run();
+    }
+
+    private void applySelectedFieldOcr(boolean refreshParameters) {
+        if (refreshing || viewModel.draft() == null || selectedField() == null) {
+            return;
+        }
+        var index = selection.get().fieldIndex();
+        var current = selectedField();
+        viewModel.updateFieldOcr(index, fieldOcr(current == null ? null : current.ocr()));
+        pendingSelection.accept("field." + index + ".ocr");
+        if (refreshParameters) {
+            refreshAll.run();
+        } else {
+            afterChange.run();
+        }
+    }
+
+    private void replaceFieldOcrDetector(int fieldIndex, ExtensionRefDto detector) {
+        var field = field(fieldIndex);
+        if (field == null) {
+            return;
+        }
+        var current = field.ocr();
+        viewModel.updateFieldOcr(fieldIndex, new OcrSettingsDto(
+            current == null ? null : current.language(),
+            current == null ? null : current.datapath(),
+            detector
+        ));
+        pendingSelection.accept("field." + fieldIndex + ".ocr");
+        afterChange.run();
+    }
+
+    private OcrSettingsDto fieldOcr(OcrSettingsDto current) {
+        return new OcrSettingsDto(blankToNull(ocrLanguage.getText()), blankToNull(ocrDatapath.getText()),
+            ocrDetectorRef(ocrDetector.getValue(), current == null ? null : current.detector()));
+    }
+
+    private ExtensionRefDto ocrDetectorRef(String id, ExtensionRefDto current) {
+        var normalized = blankToNull(id);
+        if (normalized == null || "ocr".equals(normalized)) {
+            return null;
+        }
+        if (current != null && java.util.Objects.equals(current.id(), normalized)) {
+            return current;
+        }
+        return new ExtensionRefDto(normalized, java.util.Map.of());
+    }
+
+    private String ocrDetectorId(OcrSettingsDto ocr) {
+        return ocr == null || ocr.detector() == null || ocr.detector().id() == null || ocr.detector().id().isBlank()
+            ? "ocr"
+            : ocr.detector().id();
+    }
+
+    private boolean usesOcrDetector(OcrSettingsDto ocr) {
+        return "ocr".equals(ocrDetectorId(ocr));
+    }
+
+    private List<String> detectorIds() {
+        var ids = new java.util.ArrayList<String>();
+        ids.add("ocr");
+        extensionRegistry.extensions().stream()
+            .filter(extension -> extension.descriptor().type() == ExtensionType.DETECTOR)
+            .map(extension -> extension.descriptor().id().value())
+            .filter(id -> !"text".equals(id))
+            .sorted()
+            .forEach(ids::add);
+        return List.copyOf(ids);
     }
 
     private Node referenceAnchorsContent(int fieldIndex) {

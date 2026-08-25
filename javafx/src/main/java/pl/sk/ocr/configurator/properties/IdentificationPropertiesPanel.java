@@ -165,7 +165,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         installTooltip(addGroup, "Add a new OR group.");
         installTooltip(removeLastGroup, "Remove the last OR group.");
         conditionDetectorId.getItems().setAll(detectorIds());
-        conditionDetectorId.setEditable(true);
+        conditionDetectorId.setEditable(false);
         installTooltip(conditionPage, "Page where this condition should be evaluated. Empty means default behavior.");
         installTooltip(conditionExpectedText, "Text expected in OCR text or detector payload.");
         installTooltip(conditionMatcherId, "Matcher extension id used by this condition.");
@@ -202,8 +202,7 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
         addDraftListener(conditionPage, this::applySelectedCondition);
         addDraftListener(conditionExpectedText, this::applySelectedCondition);
         addDraftListener(conditionMatcherId, this::applySelectedCondition);
-        conditionDetectorId.valueProperty().addListener((obs, old, value) -> applySelectedCondition());
-        conditionDetectorId.getEditor().textProperty().addListener((obs, old, value) -> applySelectedCondition());
+        conditionDetectorId.valueProperty().addListener((obs, old, value) -> applySelectedCondition(!java.util.Objects.equals(old, value)));
         pickMatcher.setOnAction(event -> chooseExtension(ExtensionType.MATCHER, conditionMatcherId));
         addRegionSpinnerListeners();
         drawSearchRegion.setOnAction(event -> activateConditionSearchRegionDrawing.run());
@@ -488,18 +487,27 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     }
 
     private void applySelectedCondition() {
+        applySelectedCondition(false);
+    }
+
+    private void applySelectedCondition(boolean refreshParameters) {
         var selected = selection.get();
         if (refreshing || viewModel.draft() == null || selected.type() != SelectionType.CONDITION) {
             return;
         }
-        var detector = extensionRef(conditionDetectorId.getEditor().getText(), selectedCondition() == null ? null : selectedCondition().detector());
+        var detector = extensionRef(conditionDetectorId.getValue(), selectedCondition() == null ? null : selectedCondition().detector());
         viewModel.replaceCondition(selected.groupIndex(), selected.conditionIndex(), new ConditionDto(
             parseInteger(conditionPage.getText()),
             blankToNull(conditionExpectedText.getText()),
             extensionRef(conditionMatcherId.getText(), selectedCondition() == null ? null : selectedCondition().matcher()),
             detector,
             conditionSearchRegion()));
-        afterChange.run();
+        if (refreshParameters) {
+            pendingSelection.accept("identification.group." + selected.groupIndex() + ".condition." + selected.conditionIndex());
+            refreshAll.run();
+        } else {
+            afterChange.run();
+        }
     }
 
     private boolean hasCompleteConditionSearchRegion() {

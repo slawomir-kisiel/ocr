@@ -12,11 +12,13 @@ import java.util.function.Supplier;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.config.dto.AnchorDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
@@ -37,16 +39,16 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     private final Runnable activateSearchRegionDrawing;
     private final Runnable activateReferenceBoundsDrawing;
     private final Function<String, Node> iconFactory;
+    private final ExtensionRegistry extensionRegistry;
     private final ExtensionPicker extensionPicker;
     private final ExtensionParametersForm parametersForm;
     private final Label anchorsCount = new Label();
     private final Button addAnchor = new Button("Add Anchor");
     private final TextField anchorId = new TextField();
     private final TextField anchorPage = new TextField();
-    private final TextField anchorDetectorId = new TextField();
+    private final ComboBox<String> anchorDetectorId = new ComboBox<>();
     private final TextField anchorExpectedText = new TextField();
     private final TextField anchorMatcherId = new TextField();
-    private final Button pickDetector = new Button("...");
     private final Button pickMatcher = new Button("...");
     private final CheckBox anchorRequired = new CheckBox();
     private final Spinner<Integer> searchRegionX = regionSpinner();
@@ -82,6 +84,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         this.activateSearchRegionDrawing = activateSearchRegionDrawing;
         this.activateReferenceBoundsDrawing = activateReferenceBoundsDrawing;
         this.iconFactory = iconFactory;
+        this.extensionRegistry = extensionRegistry;
         this.extensionPicker = new ExtensionPicker(extensionRegistry);
         this.parametersForm = new ExtensionParametersForm(extensionRegistry);
         configure();
@@ -109,7 +112,7 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
             var anchor = selectedAnchor();
             anchorId.setText(anchor == null ? "" : nullToEmpty(anchor.id()));
             anchorPage.setText(anchor == null || anchor.page() == null ? "" : anchor.page().toString());
-            anchorDetectorId.setText(anchor == null || anchor.detector() == null ? "" : nullToEmpty(anchor.detector().id()));
+            anchorDetectorId.setValue(anchor == null || anchor.detector() == null ? defaultDetectorId() : nullToEmpty(anchor.detector().id()));
             anchorExpectedText.setText(anchor == null ? "" : nullToEmpty(anchor.expectedText()));
             anchorMatcherId.setText(anchor == null || anchor.matcher() == null ? "" : nullToEmpty(anchor.matcher().id()));
             anchorRequired.setSelected(anchor != null && Boolean.TRUE.equals(anchor.required()));
@@ -171,7 +174,6 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         installTooltip(anchorDetectorId, "Detector extension id used by this anchor.");
         installTooltip(anchorExpectedText, "Text expected in detector output.");
         installTooltip(anchorMatcherId, "Matcher extension id used by this anchor.");
-        installTooltip(pickDetector, "Choose detector extension from registry.");
         installTooltip(pickMatcher, "Choose matcher extension from registry.");
         installTooltip(anchorRequired, "Whether missing anchor should fail geometry detection.");
         installTooltip(searchRegionX, "Anchor search region X coordinate.");
@@ -187,13 +189,14 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         configureDrawButton(drawReferenceBounds, "Draw anchor reference feature bounds on document preview.");
         configureSymmetricResizeButton(symmetricSearchRegionResize);
         configureSymmetricResizeButton(symmetricReferenceBoundsResize);
+        anchorDetectorId.getItems().setAll(detectorIds());
+        anchorDetectorId.setEditable(false);
         addAnchor.setOnAction(event -> addAnchor());
         addDraftListener(anchorId, this::applySelectedAnchor);
         addDraftListener(anchorPage, this::applySelectedAnchor);
-        addDraftListener(anchorDetectorId, this::applySelectedAnchor);
         addDraftListener(anchorExpectedText, this::applySelectedAnchor);
         addDraftListener(anchorMatcherId, this::applySelectedAnchor);
-        pickDetector.setOnAction(event -> chooseDetector());
+        anchorDetectorId.valueProperty().addListener((obs, old, value) -> applySelectedAnchor(!java.util.Objects.equals(old, value)));
         pickMatcher.setOnAction(event -> chooseMatcher());
         anchorRequired.selectedProperty().addListener((obs, old, value) -> applySelectedAnchor());
         addRegionSpinnerListeners(searchRegionX, searchRegionY, searchRegionWidth, searchRegionHeight,
@@ -241,18 +244,14 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var anchorContent = new VBox(8);
         addFormRow(anchorContent, "ID", anchorId);
         addFormRow(anchorContent, "Page", anchorPage);
-        addFormRow(anchorContent, "Detector ID", extensionInput(anchorDetectorId, pickDetector));
+        var anchor = anchor(anchorIndex);
+        addExtensionRow(anchorContent, "Detector", anchorDetectorId,
+            anchor == null ? null : anchor.detector(), ExtensionType.DETECTOR, ref -> replaceDetector(anchorIndex, ref));
         addFormRow(anchorContent, "Expected Text", anchorExpectedText);
-        addFormRow(anchorContent, "Matcher ID", extensionInput(anchorMatcherId, pickMatcher));
+        addExtensionRow(anchorContent, "Matcher", extensionInput(anchorMatcherId, pickMatcher),
+            anchor == null ? null : anchor.matcher(), ExtensionType.MATCHER, ref -> replaceMatcher(anchorIndex, ref));
         addFormRow(anchorContent, "Required", anchorRequired);
         section.getChildren().add(titledPane("Anchor", anchorContent));
-        var anchor = anchor(anchorIndex);
-        if (anchor != null && anchor.detector() != null) {
-            section.getChildren().add(parametersForm.view(anchor.detector(), ExtensionType.DETECTOR, ref -> replaceDetector(anchorIndex, ref)));
-        }
-        if (anchor != null && anchor.matcher() != null) {
-            section.getChildren().add(parametersForm.view(anchor.matcher(), ExtensionType.MATCHER, ref -> replaceMatcher(anchorIndex, ref)));
-        }
 
         var searchRegionContent = new VBox(8);
         detachFromParent(drawSearchRegion);
@@ -309,6 +308,31 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         var box = new HBox(6, field, picker);
         HBox.setHgrow(field, javafx.scene.layout.Priority.ALWAYS);
         return box;
+    }
+
+    private void addExtensionRow(VBox form, String labelText, Node input, ExtensionRefDto ref, ExtensionType type, Consumer<ExtensionRefDto> onChange) {
+        detachFromParent(input);
+        var label = new Label(labelText);
+        label.setStyle("-fx-text-fill: #111827;");
+        var field = new VBox(3, label, input);
+        field.setMaxWidth(Double.MAX_VALUE);
+        if (parametersForm.hasParameters(ref, type)) {
+            var parameters = parametersForm.inlineView(ref, type, onChange);
+            var indented = new HBox(8, parameterGuideLine(), parameters);
+            indented.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(parameters, Priority.ALWAYS);
+            field.getChildren().add(indented);
+        }
+        form.getChildren().add(field);
+    }
+
+    private Node parameterGuideLine() {
+        var line = new javafx.scene.layout.Region();
+        line.setMinWidth(2);
+        line.setPrefWidth(2);
+        line.setMaxWidth(2);
+        line.setStyle("-fx-background-color: #94a3b8;");
+        return line;
     }
 
     private void addRegionSpinnerListeners(Spinner<Integer> x, Spinner<Integer> y, Spinner<Integer> width,
@@ -387,13 +411,6 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
             && blankToNull(height.getEditor().getText()) != null;
     }
 
-    private void chooseDetector() {
-        extensionPicker.chooseId(ExtensionType.DETECTOR, anchorDetectorId.getText()).ifPresent(id -> {
-            anchorDetectorId.setText(id);
-            applySelectedAnchor();
-        });
-    }
-
     private void chooseMatcher() {
         extensionPicker.chooseId(ExtensionType.MATCHER, anchorMatcherId.getText()).ifPresent(id -> {
             anchorMatcherId.setText(id);
@@ -431,16 +448,24 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
     }
 
     private void applySelectedAnchor() {
+        applySelectedAnchor(false);
+    }
+
+    private void applySelectedAnchor(boolean refreshParameters) {
         if (refreshing || viewModel.draft() == null || selectedIndex.getAsInt() < 0) {
             return;
         }
         var index = selectedIndex.getAsInt();
         var current = selectedAnchor();
         viewModel.replaceAnchor(index, new AnchorDto(blankToNull(anchorId.getText()), parseInteger(anchorPage.getText()),
-            extensionRef(anchorDetectorId.getText(), current == null ? null : current.detector()), blankToNull(anchorExpectedText.getText()),
+            extensionRef(anchorDetectorId.getValue(), current == null ? null : current.detector()), blankToNull(anchorExpectedText.getText()),
             extensionRef(anchorMatcherId.getText(), current == null ? null : current.matcher()), anchorRequired.isSelected(), referenceFeature(), searchRegion()));
         pendingSelection.accept("anchor." + index);
-        afterChange.run();
+        if (refreshParameters) {
+            refreshAll.run();
+        } else {
+            afterChange.run();
+        }
     }
 
     private AnchorDto selectedAnchor() {
@@ -507,6 +532,22 @@ public final class AnchorPropertiesPanel implements DetailsPanel {
         }
         var parameters = current != null && normalized.equals(current.id()) && current.parameters() != null ? current.parameters() : Map.<String, Object>of();
         return new ExtensionRefDto(normalized, parameters);
+    }
+
+    private List<String> detectorIds() {
+        return extensionRegistry.extensions().stream()
+            .filter(extension -> extension.descriptor().type() == ExtensionType.DETECTOR)
+            .map(extension -> extension.descriptor().id().value())
+            .sorted()
+            .toList();
+    }
+
+    private String defaultDetectorId() {
+        var ids = detectorIds();
+        if (ids.contains("text")) {
+            return "text";
+        }
+        return ids.isEmpty() ? null : ids.getFirst();
     }
 
     private String uniqueAnchorId(int seed) {

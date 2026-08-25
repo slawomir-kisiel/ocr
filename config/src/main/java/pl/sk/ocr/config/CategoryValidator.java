@@ -275,6 +275,12 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         if (ocr != null && ocr.language() != null && ocr.language().isBlank()) {
             problems.add(problem("OCR_LANGUAGE_INVALID", path + ".language", "OCR language must not be blank"));
         }
+        if (ocr != null && ocr.detector() != null) {
+            if ("ocr".equals(ocr.detector().id())) {
+                return;
+            }
+            validateExtension(ocr.detector(), ExtensionType.DETECTOR, path + ".detector", problems);
+        }
     }
 
     private static void positive(Integer value, String path, List<ConfigurationProblem> problems) {
