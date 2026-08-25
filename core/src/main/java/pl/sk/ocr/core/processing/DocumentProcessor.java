@@ -202,6 +202,20 @@ public final class DocumentProcessor {
         attributes.put("scaleY", geometry.transform().scale().y());
         attributes.put("translateX", geometry.transform().translateX());
         attributes.put("translateY", geometry.transform().translateY());
+        attributes.put("controlPointCount", geometry.usedControlPoints().size());
+        if (geometry.selectedPairDistance() != null) {
+            attributes.put("selectedPairDistance", geometry.selectedPairDistance());
+        }
+        attributes.put("usedControlPoints", geometry.usedControlPoints().stream()
+            .map(point -> Map.of(
+                "anchorId", point.anchorId().value(),
+                "point", point.point(),
+                "referenceX", point.referenceX(),
+                "referenceY", point.referenceY(),
+                "detectedX", point.detectedX(),
+                "detectedY", point.detectedY()
+            ))
+            .toList());
         attributes.put("detectedAnchors", referenceFeatures.stream()
             .map(feature -> Map.of(
                 "anchorId", feature.anchorId().value(),
