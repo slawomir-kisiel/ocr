@@ -281,6 +281,7 @@ public final class DocumentProcessor {
                     attributes.put("matcherId", condition.matcher() == null ? "" : condition.matcher().id().value());
                     attributes.put("matcherStatus", matcherStatus(condition));
                     attributes.put("searchRegion", regionText(condition.searchRegion()));
+                    putRegion(attributes, "search", condition.searchRegion());
                     attributes.put("ocrWordsTotal", pageOcr.words().size());
                     attributes.put("ocrTextInRegion", haystack);
                     attributes.put("detectorPayload", haystack);

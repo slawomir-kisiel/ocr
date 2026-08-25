@@ -21,6 +21,7 @@ import javafx.scene.layout.BorderStrokeStyle;
 import javafx.scene.layout.BorderWidths;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.SVGPath;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.issue.ProcessingStage;
 import pl.sk.ocr.domain.issue.ProcessingIssue;
@@ -44,8 +45,8 @@ public final class CategoryTestResultPanel {
     private final Label trace = label("Trace: -");
     private final TableView<FieldRow> fields = new TableView<>();
     private final ListView<String> issues = new ListView<>();
-    private final ListView<String> traceDetails = new ListView<>();
     private final TableView<AnchorTraceRow> anchorTrace = new TableView<>();
+    private final TableView<IdentificationTraceRow> identificationTrace = new TableView<>();
     private final Label transformMain = label("dx = -, dy = -, scaleX = -, scaleY = -");
     private final Label transformAffine = label("affine - [a = -, b = -, c = -, d = -]");
     private final VBox root;
@@ -64,9 +65,8 @@ public final class CategoryTestResultPanel {
         configureFields();
         issues.setPrefHeight(120);
         issues.setCellFactory(list -> textCell());
-        traceDetails.setPrefHeight(150);
-        traceDetails.setCellFactory(list -> textCell());
         configureAnchorTrace();
+        configureIdentificationTrace();
         root = new VBox(6,
             label("Reference documents"),
             documents,
@@ -82,7 +82,7 @@ public final class CategoryTestResultPanel {
             anchorTrace,
             transformSummary(),
             label("Identification trace"),
-            traceDetails,
+            identificationTrace,
             label("Errors / Warnings"),
             issues
         );
@@ -101,6 +101,11 @@ public final class CategoryTestResultPanel {
         anchorTrace.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
             if (anchorSelection != null) {
                 anchorSelection.accept(selected == null ? null : new AnchorTraceSelection(selected.bounds(), selected.searchRegion()));
+            }
+        });
+        identificationTrace.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
+            if (anchorSelection != null) {
+                anchorSelection.accept(selected == null ? null : new AnchorTraceSelection(null, selected.searchRegion()));
             }
         });
         refresh();
@@ -140,8 +145,9 @@ public final class CategoryTestResultPanel {
             fields.getSelectionModel().clearSelection();
             anchorTrace.getItems().clear();
             anchorTrace.getSelectionModel().clearSelection();
+            identificationTrace.getItems().clear();
+            identificationTrace.getSelectionModel().clearSelection();
             setTransformSummary(null);
-            traceDetails.getItems().setAll("No trace entries");
             issues.getItems().setAll("No category test result");
             return;
         }
@@ -155,9 +161,9 @@ public final class CategoryTestResultPanel {
         fields.getSelectionModel().clearSelection();
         anchorTrace.getItems().setAll(anchorTraceRows(result));
         anchorTrace.getSelectionModel().clearSelection();
+        identificationTrace.getItems().setAll(identificationTraceRows(result));
+        identificationTrace.getSelectionModel().clearSelection();
         setTransformSummary(result);
-        var traceTexts = traceTexts(result);
-        traceDetails.getItems().setAll(traceTexts.isEmpty() ? List.of("No identification trace entries") : traceTexts);
         var issueTexts = issueTexts(result);
         issues.getItems().setAll(issueTexts.isEmpty() ? List.of("No errors or warnings") : issueTexts);
     }
@@ -201,10 +207,29 @@ public final class CategoryTestResultPanel {
         anchorTrace.getColumns().add(anchorColumn("Y", "y", 70));
         anchorTrace.getColumns().add(anchorColumn("W", "width", 70));
         anchorTrace.getColumns().add(anchorColumn("H", "height", 70));
-        anchorTrace.getColumns().add(ocrColumn());
+        anchorTrace.getColumns().add(anchorOcrColumn());
         anchorTrace.setStyle(TEXT_COLOR_STYLE);
         anchorTrace.skinProperty().addListener((obs, old, skin) ->
             javafx.application.Platform.runLater(() -> anchorTrace.lookupAll(".column-header .label")
+                .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
+    }
+
+    private void configureIdentificationTrace() {
+        identificationTrace.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+        identificationTrace.setPrefHeight(160);
+        identificationTrace.getColumns().add(identificationColumn("Category", "categoryId", 120));
+        identificationTrace.getColumns().add(identificationColumn("Group", "group", 70));
+        identificationTrace.getColumns().add(identificationColumn("Condition", "condition", 90));
+        identificationTrace.getColumns().add(identificationColumn("Matched", "matched", 85));
+        identificationTrace.getColumns().add(identificationColumn("Detector", "detectorId", 100));
+        identificationTrace.getColumns().add(identificationColumn("Matcher", "matcherId", 100));
+        identificationTrace.getColumns().add(identificationColumn("Matcher Status", "matcherStatus", 130));
+        identificationTrace.getColumns().add(identificationColumn("Expected", "expectedText", 160));
+        identificationTrace.getColumns().add(identificationColumn("Search Region", "searchRegionText", 180));
+        identificationTrace.getColumns().add(identificationOcrColumn());
+        identificationTrace.setStyle(TEXT_COLOR_STYLE);
+        identificationTrace.skinProperty().addListener((obs, old, skin) ->
+            javafx.application.Platform.runLater(() -> identificationTrace.lookupAll(".column-header .label")
                 .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
     }
 
@@ -232,11 +257,19 @@ public final class CategoryTestResultPanel {
         return column;
     }
 
-    private TableColumn<AnchorTraceRow, Void> ocrColumn() {
+    private TableColumn<IdentificationTraceRow, String> identificationColumn(String title, String property, double width) {
+        var column = new TableColumn<IdentificationTraceRow, String>(title);
+        column.setCellValueFactory(new PropertyValueFactory<>(property));
+        column.setStyle(TEXT_COLOR_STYLE);
+        column.setPrefWidth(width);
+        return column;
+    }
+
+    private TableColumn<AnchorTraceRow, Void> anchorOcrColumn() {
         var column = new TableColumn<AnchorTraceRow, Void>("OCR");
         column.setPrefWidth(70);
         column.setCellFactory(table -> new TableCell<>() {
-            private final Button button = new Button("🔍");
+            private final Button button = ocrPreviewButton();
 
             {
                 button.setTooltip(new javafx.scene.control.Tooltip("Show OCR text"));
@@ -259,6 +292,49 @@ public final class CategoryTestResultPanel {
             }
         });
         return column;
+    }
+
+    private TableColumn<IdentificationTraceRow, Void> identificationOcrColumn() {
+        var column = new TableColumn<IdentificationTraceRow, Void>("OCR");
+        column.setPrefWidth(70);
+        column.setCellFactory(table -> new TableCell<>() {
+            private final Button button = ocrPreviewButton();
+
+            {
+                button.setTooltip(new javafx.scene.control.Tooltip("Show OCR text"));
+                button.setOnAction(event -> {
+                    var row = getTableView().getItems().get(getIndex());
+                    showOcrDialog("Identification OCR", "Condition: " + row.conditionPath(), row.ocrText());
+                });
+            }
+
+            @Override
+            protected void updateItem(Void item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getIndex() < 0 || getIndex() >= getTableView().getItems().size()) {
+                    setGraphic(null);
+                    return;
+                }
+                var row = getTableView().getItems().get(getIndex());
+                button.setDisable(row.ocrText() == null || row.ocrText().isBlank());
+                setGraphic(button);
+            }
+        });
+        return column;
+    }
+
+    private static Button ocrPreviewButton() {
+        var icon = new SVGPath();
+        icon.setContent("M9.5 3a6.5 6.5 0 1 0 0 13a6.5 6.5 0 0 0 0-13z M9.5 5a4.5 4.5 0 1 1 0 9a4.5 4.5 0 0 1 0-9z M14.3 14.3l4.4 4.4l-1.4 1.4l-4.4-4.4z");
+        icon.setFill(Color.web("#111827"));
+        icon.setScaleX(0.8);
+        icon.setScaleY(0.8);
+        var button = new Button();
+        button.setGraphic(icon);
+        button.setMinSize(28, 28);
+        button.setPrefSize(28, 28);
+        button.setMaxSize(28, 28);
+        return button;
     }
 
     private String identificationStatus(DocumentResult result) {
@@ -284,7 +360,7 @@ public final class CategoryTestResultPanel {
         return all.stream().map(this::issueText).toList();
     }
 
-    private List<String> traceTexts(DocumentResult result) {
+    private List<IdentificationTraceRow> identificationTraceRows(DocumentResult result) {
         if (result.trace() == null || result.trace().entries() == null) {
             return List.of();
         }
@@ -293,14 +369,19 @@ public final class CategoryTestResultPanel {
             .filter(entry -> isIdentificationConditionTrace(entry.attributes()))
             .map(entry -> {
                 var attributes = entry.attributes();
-                return "category=" + attributes.getOrDefault("categoryId", "")
-                    + " | group=" + attributes.getOrDefault("group", "")
-                    + " | condition=" + attributes.getOrDefault("condition", "")
-                    + " | matched=" + attributes.getOrDefault("matched", "")
-                    + " | matcher=" + attributes.getOrDefault("matcherId", "")
-                    + " | matcherStatus=" + attributes.getOrDefault("matcherStatus", "")
-                    + " | expected=" + attributes.getOrDefault("expectedText", "")
-                    + " | ocrTextInRegion=" + attributes.getOrDefault("ocrTextInRegion", "");
+                return new IdentificationTraceRow(
+                    String.valueOf(attributes.getOrDefault("categoryId", "")),
+                    String.valueOf(attributes.getOrDefault("group", "")),
+                    String.valueOf(attributes.getOrDefault("condition", "")),
+                    String.valueOf(attributes.getOrDefault("matched", "")),
+                    String.valueOf(attributes.getOrDefault("detectorId", "")),
+                    String.valueOf(attributes.getOrDefault("matcherId", "")),
+                    String.valueOf(attributes.getOrDefault("matcherStatus", "")),
+                    String.valueOf(attributes.getOrDefault("expectedText", "")),
+                    String.valueOf(attributes.getOrDefault("searchRegion", "")),
+                    region(attributes, "search"),
+                    String.valueOf(attributes.getOrDefault("ocrTextInRegion", ""))
+                );
             })
             .toList();
     }
@@ -331,12 +412,16 @@ public final class CategoryTestResultPanel {
     }
 
     private void showOcrDialog(AnchorTraceRow row) {
+        showOcrDialog("Anchor OCR", "Anchor: " + row.anchorId(), row.ocrText());
+    }
+
+    private void showOcrDialog(String title, String header, String ocrText) {
         var dialog = new Dialog<Void>();
-        dialog.setTitle("Anchor OCR");
-        dialog.setHeaderText("Anchor: " + row.anchorId());
+        dialog.setTitle(title);
+        dialog.setHeaderText(header);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         dialog.getDialogPane().setPrefSize(640, 420);
-        var text = new TextArea(row.ocrText() == null ? "" : row.ocrText());
+        var text = new TextArea(ocrText == null ? "" : ocrText);
         text.setEditable(false);
         text.setWrapText(true);
         text.setStyle(TEXT_COLOR_STYLE);
@@ -462,6 +547,50 @@ public final class CategoryTestResultPanel {
     }
 
     public record AnchorTraceSelection(Region detectedRegion, Region searchRegion) {
+    }
+
+    public record IdentificationTraceRow(String categoryId, String group, String condition, String matched, String detectorId,
+                                         String matcherId, String matcherStatus, String expectedText, String searchRegionText,
+                                         Region searchRegion, String ocrText) {
+        public String getCategoryId() {
+            return categoryId;
+        }
+
+        public String getGroup() {
+            return group;
+        }
+
+        public String getCondition() {
+            return condition;
+        }
+
+        public String getMatched() {
+            return matched;
+        }
+
+        public String getDetectorId() {
+            return detectorId;
+        }
+
+        public String getMatcherId() {
+            return matcherId;
+        }
+
+        public String getMatcherStatus() {
+            return matcherStatus;
+        }
+
+        public String getExpectedText() {
+            return expectedText;
+        }
+
+        public String getSearchRegionText() {
+            return searchRegionText;
+        }
+
+        public String conditionPath() {
+            return categoryId + " / group " + group + " / condition " + condition;
+        }
     }
 
     public record AnchorTraceRow(String anchorId, boolean matched, boolean used, boolean required, String confidence, Region bounds,
