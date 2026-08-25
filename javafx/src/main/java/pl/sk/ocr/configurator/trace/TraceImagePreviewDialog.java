@@ -3,6 +3,7 @@ package pl.sk.ocr.configurator.trace;
 import java.util.List;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
@@ -12,6 +13,7 @@ import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.domain.trace.TraceImageRef;
@@ -26,26 +28,47 @@ final class TraceImagePreviewDialog {
     private final ScrollPane leftScroll = new ScrollPane(leftView);
     private final ScrollPane rightScroll = new ScrollPane(rightView);
     private final Label zoomLabel = new Label("100%");
+    private final Label leftTitle = label("Input");
+    private final Label rightTitle = label("Output");
+    private final Button previous = new Button("Poprzedni");
+    private final Button next = new Button("Następny");
+    private List<ImagePreview> images = List.of();
+    private int currentIndex;
     private double zoom = 1.0;
 
     void show(String title, List<ImagePreview> images) {
+        show(title, images, 0);
+    }
+
+    void show(String title, List<ImagePreview> images, int selectedIndex) {
+        this.images = images == null ? List.of() : List.copyOf(images);
+        this.currentIndex = Math.max(0, Math.min(selectedIndex, this.images.size() - 1));
         var dialog = new Dialog<Void>();
         dialog.setTitle(title == null || title.isBlank() ? "Trace Image" : title);
         dialog.setResizable(true);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         dialog.getDialogPane().setPrefSize(1100, 720);
-        dialog.getDialogPane().setContent(content(title, images));
-        render(images);
+        dialog.getDialogPane().setContent(content(title));
+        renderCurrent();
         dialog.showAndWait();
     }
 
-    private BorderPane content(String title, List<ImagePreview> images) {
+    private BorderPane content(String title) {
         configureScroll(leftScroll);
         configureScroll(rightScroll);
-        var header = new VBox(4, label(title), zoomLabel);
+        previous.setOnAction(event -> {
+            currentIndex = Math.max(0, currentIndex - 1);
+            renderCurrent();
+        });
+        next.setOnAction(event -> {
+            currentIndex = Math.min(images.size() - 1, currentIndex + 1);
+            renderCurrent();
+        });
+        var navigation = new HBox(6, previous, next, zoomLabel);
+        var header = new VBox(4, label(title), navigation);
         header.setPadding(new Insets(8));
         zoomLabel.setStyle("-fx-text-fill: #111827;");
-        var root = new BorderPane(previews(images));
+        var root = new BorderPane(previews());
         root.setTop(header);
         if (images == null || images.isEmpty()) {
             root.setCenter(new Label("Image not available"));
@@ -53,11 +76,11 @@ final class TraceImagePreviewDialog {
         return root;
     }
 
-    private GridPane previews(List<ImagePreview> images) {
+    private GridPane previews() {
         var grid = new GridPane();
         grid.setHgap(8);
-        var left = preview(title(images, 0, "Input"), leftScroll);
-        var right = preview(title(images, 1, "Output"), rightScroll);
+        var left = preview(leftTitle, leftScroll);
+        var right = preview(rightTitle, rightScroll);
         var half = new ColumnConstraints();
         half.setPercentWidth(50);
         half.setHgrow(Priority.ALWAYS);
@@ -74,8 +97,8 @@ final class TraceImagePreviewDialog {
         return grid;
     }
 
-    private VBox preview(String title, ScrollPane scroll) {
-        var box = new VBox(6, label(title), scroll);
+    private VBox preview(Label title, ScrollPane scroll) {
+        var box = new VBox(6, title, scroll);
         box.setPadding(new Insets(8));
         box.setMinWidth(0);
         box.setMaxWidth(Double.MAX_VALUE);
@@ -83,11 +106,11 @@ final class TraceImagePreviewDialog {
         return box;
     }
 
-    private String title(List<ImagePreview> images, int index, String fallback) {
-        if (images == null || index >= images.size() || images.get(index) == null || images.get(index).ref() == null) {
+    private String title(ImagePreview image, String fallback) {
+        if (image == null || image.ref() == null) {
             return fallback;
         }
-        return images.get(index).ref().label();
+        return image.ref().label();
     }
 
     private void configureScroll(ScrollPane scroll) {
@@ -103,18 +126,29 @@ final class TraceImagePreviewDialog {
         });
     }
 
-    private void render(List<ImagePreview> images) {
-        render(leftView, image(images, 0));
-        render(rightView, image(images, 1));
+    private void renderCurrent() {
+        var pair = currentPair();
+        leftTitle.setText(title(pair.left(), "Input"));
+        rightTitle.setText(title(pair.right(), "Output"));
+        render(leftView, pair.left() == null ? null : pair.left().image());
+        render(rightView, pair.right() == null ? null : pair.right().image());
         applyImageSize(leftView);
         applyImageSize(rightView);
+        previous.setDisable(images.size() <= 1 || currentIndex == 0);
+        next.setDisable(images.size() <= 1 || currentIndex >= images.size() - 1);
     }
 
-    private ProcessingImage image(List<ImagePreview> images, int index) {
-        if (images == null || index >= images.size() || images.get(index) == null) {
-            return null;
+    private PreviewPair currentPair() {
+        if (images.isEmpty()) {
+            return new PreviewPair(null, null);
         }
-        return images.get(index).image();
+        if (images.size() == 1) {
+            return new PreviewPair(images.get(0), null);
+        }
+        if (currentIndex < images.size() - 1) {
+            return new PreviewPair(images.get(currentIndex), images.get(currentIndex + 1));
+        }
+        return new PreviewPair(images.get(currentIndex - 1), images.get(currentIndex));
     }
 
     private void render(ImageView view, ProcessingImage image) {
@@ -148,5 +182,8 @@ final class TraceImagePreviewDialog {
     }
 
     record ImagePreview(TraceImageRef ref, ProcessingImage image) {
+    }
+
+    private record PreviewPair(ImagePreview left, ImagePreview right) {
     }
 }

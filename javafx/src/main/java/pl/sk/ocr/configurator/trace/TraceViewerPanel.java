@@ -21,7 +21,6 @@ import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.Cursor;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
-import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import pl.sk.ocr.configurator.app.TraceImageStore;
@@ -42,7 +41,7 @@ public final class TraceViewerPanel {
     private final Label summary = new Label("Trace: OFF");
     private final TextArea details = new TextArea();
     private final ListView<String> issues = new ListView<>();
-    private final HBox images = new HBox(8);
+    private final VBox images = new VBox(8);
     private final VBox root;
 
     public TraceViewerPanel(Supplier<ProcessingTrace> traceSupplier, Supplier<TraceImageStore> imageStoreSupplier) {
@@ -57,9 +56,9 @@ public final class TraceViewerPanel {
         issues.setCellFactory(list -> textCell());
         images.setPadding(new Insets(4));
         var imageScroll = new ScrollPane(images);
-        imageScroll.setFitToHeight(true);
-        imageScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        imageScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        imageScroll.setFitToWidth(true);
+        imageScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        imageScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         var lower = new VBox(6, label("Details"), details, label("Issues"), issues, label("Images"), imageScroll);
         var split = new SplitPane(stages, lower);
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
@@ -165,7 +164,7 @@ public final class TraceViewerPanel {
     private void show(TraceRow row) {
         details.setText(detailsText(row));
         issues.getItems().setAll(row.issues().stream().map(this::issueText).toList());
-        images.getChildren().setAll(row.images().stream().map(ref -> imageNode(row, ref)).toList());
+        images.getChildren().setAll(imageNodes(row));
         if (row.issues().isEmpty()) {
             issues.getItems().setAll("No issues");
         }
@@ -193,7 +192,26 @@ public final class TraceViewerPanel {
         return issue.severity() + " " + issue.code() + " | " + issue.message();
     }
 
-    private Node imageNode(TraceRow row, TraceImageRef ref) {
+    private List<Node> imageNodes(TraceRow row) {
+        var refs = row.images();
+        var nodes = new java.util.ArrayList<Node>();
+        for (int i = 0; i < refs.size(); i++) {
+            nodes.add(imageNode(row, refs.get(i), previewPair(refs, i)));
+        }
+        return nodes;
+    }
+
+    private List<TraceImageRef> previewPair(List<TraceImageRef> refs, int index) {
+        if (refs.size() <= 1) {
+            return refs;
+        }
+        if (index < refs.size() - 1) {
+            return List.of(refs.get(index), refs.get(index + 1));
+        }
+        return List.of(refs.get(index - 1), refs.get(index));
+    }
+
+    private Node imageNode(TraceRow row, TraceImageRef ref, List<TraceImageRef> previewRefs) {
         var store = imageStoreSupplier.get();
         var image = store.get(ref);
         if (image.isEmpty()) {
@@ -209,16 +227,16 @@ public final class TraceViewerPanel {
         Tooltip.install(box, new Tooltip("Double-click to open image preview"));
         box.setOnMouseClicked(event -> {
             if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                new TraceImagePreviewDialog().show(row.message(), previewImages(row));
+                new TraceImagePreviewDialog().show(row.message(), previewImages(row.images()), row.images().indexOf(ref));
             }
         });
         box.setStyle("-fx-border-color: #c8cdd4; -fx-border-radius: 4; -fx-background-radius: 4;");
         return box;
     }
 
-    private List<TraceImagePreviewDialog.ImagePreview> previewImages(TraceRow row) {
+    private List<TraceImagePreviewDialog.ImagePreview> previewImages(List<TraceImageRef> refs) {
         var store = imageStoreSupplier.get();
-        return row.images().stream()
+        return refs.stream()
             .map(ref -> store.get(ref)
                 .map(image -> new TraceImagePreviewDialog.ImagePreview(ref, image))
                 .orElse(null))

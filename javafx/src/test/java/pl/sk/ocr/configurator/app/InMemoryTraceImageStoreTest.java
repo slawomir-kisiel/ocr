@@ -17,7 +17,11 @@ class InMemoryTraceImageStoreTest {
 
         assertThat(ref.id()).startsWith("trace-image-");
         assertThat(ref.label()).isEqualTo("Input");
-        assertThat(store.get(ref)).containsSame(image);
+        assertThat(store.get(ref)).hasValueSatisfying(stored -> {
+            assertThat(stored).isNotSameAs(image);
+            assertThat(stored.width()).isEqualTo(image.width());
+            assertThat(stored.height()).isEqualTo(image.height());
+        });
         assertThat(store.size()).isEqualTo(1);
 
         store.clear();

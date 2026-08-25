@@ -17,6 +17,7 @@ import pl.sk.ocr.domain.geometry.Transform;
 import pl.sk.ocr.domain.identifier.ExtensionId;
 import pl.sk.ocr.domain.identifier.FieldId;
 import pl.sk.ocr.domain.issue.ProcessingStage;
+import pl.sk.ocr.domain.ocr.OcrText;
 import pl.sk.ocr.domain.result.StageResult;
 import pl.sk.ocr.domain.trace.ProcessingTrace;
 import pl.sk.ocr.domain.trace.TraceEntry;
@@ -36,6 +37,11 @@ public final class PreviewFieldUseCase {
     }
 
     public FieldPreviewResult preview(CategoryDto category, FieldDto field, ProcessingImage pageImage, TraceImageStore traceImageStore) {
+        return preview(category, field, pageImage, null, traceImageStore);
+    }
+
+    public FieldPreviewResult preview(CategoryDto category, FieldDto field, ProcessingImage pageImage, OcrText pageOcr,
+                                      TraceImageStore traceImageStore) {
         if (category == null) {
             throw new IllegalArgumentException("category is required");
         }
@@ -50,11 +56,12 @@ public final class PreviewFieldUseCase {
         }
         traceImageStore.clear();
         var fieldDefinition = fieldDefinition(category, field);
-        var preview = previewPipeline(fieldDefinition, pageImage);
+        var categoryOcr = ocr(category.ocr(), OcrSettings.defaults());
+        var preview = previewPipeline(fieldDefinition, pageImage, pageOcr, categoryOcr);
         var imageRefs = traceImages(traceImageStore, preview);
         var rawOcr = preview == null || preview.ocrText() == null ? "" : preview.ocrText().value();
         var rawOcrHocr = preview == null || preview.ocrText() == null ? "" : preview.ocrText().hocr();
-        var result = fieldProcessingService.extract(fieldDefinition, pageImage, Transform.IDENTITY);
+        var result = fieldProcessingService.extract(fieldDefinition, pageImage, Transform.IDENTITY, pageOcr, categoryOcr);
         var trace = new ProcessingTrace(
             TraceMode.FULL,
             List.of(new StageResult(ProcessingStage.FIELD_OCR, result.status(), result.issues())),
@@ -63,6 +70,10 @@ public final class PreviewFieldUseCase {
                 "Field preview completed",
                 Map.of(
                     "fieldId", result.fieldId().value(),
+                    "fieldOcrMode", preview == null ? "" : preview.decision().mode().name(),
+                    "fallbackReason", preview == null ? "" : preview.decision().fallbackReason(),
+                    "selectedWords", preview == null ? 0 : preview.selectedWords(),
+                    "selectedLines", preview == null ? 0 : preview.selectedLines(),
                     "rawOcr", rawOcr,
                     "rawOcrHocr", rawOcrHocr,
                     "status", result.status().name(),
@@ -74,9 +85,9 @@ public final class PreviewFieldUseCase {
         return new FieldPreviewResult(result, trace);
     }
 
-    private FieldProcessingPreview previewPipeline(FieldDefinition field, ProcessingImage pageImage) {
+    private FieldProcessingPreview previewPipeline(FieldDefinition field, ProcessingImage pageImage, OcrText pageOcr, OcrSettings pageOcrSettings) {
         try {
-            return fieldProcessingService.preview(field, pageImage, Transform.IDENTITY);
+            return fieldProcessingService.preview(field, pageImage, Transform.IDENTITY, pageOcr, pageOcrSettings);
         } catch (RuntimeException | Error e) {
             System.err.println("Field preview raw OCR failed; continuing with regular field extraction.");
             e.printStackTrace(System.err);

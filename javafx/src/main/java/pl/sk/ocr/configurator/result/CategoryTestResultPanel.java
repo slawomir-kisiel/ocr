@@ -15,6 +15,7 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.Border;
 import javafx.scene.layout.BorderStroke;
 import javafx.scene.layout.BorderStrokeStyle;
@@ -143,10 +144,12 @@ public final class CategoryTestResultPanel {
             trace.setText("Trace: -");
             fields.getItems().clear();
             fields.getSelectionModel().clearSelection();
-            anchorTrace.getItems().clear();
-            anchorTrace.getSelectionModel().clearSelection();
+        anchorTrace.getItems().clear();
+        anchorTrace.getSelectionModel().clearSelection();
+            resizeTraceTable(anchorTrace);
             identificationTrace.getItems().clear();
             identificationTrace.getSelectionModel().clearSelection();
+            resizeTraceTable(identificationTrace);
             setTransformSummary(null);
             issues.getItems().setAll("No category test result");
             return;
@@ -160,8 +163,10 @@ public final class CategoryTestResultPanel {
         fields.getItems().setAll(result.fields().stream().map(FieldRow::from).toList());
         fields.getSelectionModel().clearSelection();
         anchorTrace.getItems().setAll(anchorTraceRows(result));
+        resizeTraceTable(anchorTrace);
         anchorTrace.getSelectionModel().clearSelection();
         identificationTrace.getItems().setAll(identificationTraceRows(result));
+        resizeTraceTable(identificationTrace);
         identificationTrace.getSelectionModel().clearSelection();
         setTransformSummary(result);
         var issueTexts = issueTexts(result);
@@ -197,7 +202,8 @@ public final class CategoryTestResultPanel {
 
     private void configureAnchorTrace() {
         anchorTrace.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
-        anchorTrace.setPrefHeight(150);
+        anchorTrace.setFixedCellSize(28);
+        anchorTrace.setPrefHeight(traceTableHeight(1));
         anchorTrace.getColumns().add(anchorColumn("Used", "usedMark", 60));
         anchorTrace.getColumns().add(anchorColumn("Anchor", "anchorId", 140));
         anchorTrace.getColumns().add(anchorColumn("Status", "status", 95));
@@ -209,6 +215,7 @@ public final class CategoryTestResultPanel {
         anchorTrace.getColumns().add(anchorColumn("H", "height", 70));
         anchorTrace.getColumns().add(anchorOcrColumn());
         anchorTrace.setStyle(TEXT_COLOR_STYLE);
+        forwardVerticalScrollToParent(anchorTrace);
         anchorTrace.skinProperty().addListener((obs, old, skin) ->
             javafx.application.Platform.runLater(() -> anchorTrace.lookupAll(".column-header .label")
                 .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
@@ -216,7 +223,8 @@ public final class CategoryTestResultPanel {
 
     private void configureIdentificationTrace() {
         identificationTrace.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
-        identificationTrace.setPrefHeight(160);
+        identificationTrace.setFixedCellSize(28);
+        identificationTrace.setPrefHeight(traceTableHeight(1));
         identificationTrace.getColumns().add(identificationColumn("Category", "categoryId", 120));
         identificationTrace.getColumns().add(identificationColumn("Group", "group", 70));
         identificationTrace.getColumns().add(identificationColumn("Condition", "condition", 90));
@@ -228,6 +236,7 @@ public final class CategoryTestResultPanel {
         identificationTrace.getColumns().add(identificationColumn("Search Region", "searchRegionText", 180));
         identificationTrace.getColumns().add(identificationOcrColumn());
         identificationTrace.setStyle(TEXT_COLOR_STYLE);
+        forwardVerticalScrollToParent(identificationTrace);
         identificationTrace.skinProperty().addListener((obs, old, skin) ->
             javafx.application.Platform.runLater(() -> identificationTrace.lookupAll(".column-header .label")
                 .forEach(node -> node.setStyle(TEXT_COLOR_STYLE))));
@@ -373,7 +382,7 @@ public final class CategoryTestResultPanel {
                     String.valueOf(attributes.getOrDefault("categoryId", "")),
                     String.valueOf(attributes.getOrDefault("group", "")),
                     String.valueOf(attributes.getOrDefault("condition", "")),
-                    String.valueOf(attributes.getOrDefault("matched", "")),
+                    booleanValue(attributes.get("matched")) ? "✓" : "",
                     String.valueOf(attributes.getOrDefault("detectorId", "")),
                     String.valueOf(attributes.getOrDefault("matcherId", "")),
                     String.valueOf(attributes.getOrDefault("matcherStatus", "")),
@@ -468,6 +477,47 @@ public final class CategoryTestResultPanel {
             + ", c = " + formatNumber(attributes.get("affineC"))
             + ", d = " + formatNumber(attributes.get("affineD"))
             + "]");
+    }
+
+    private void resizeTraceTable(TableView<?> table) {
+        table.setPrefHeight(traceTableHeight(table.getItems().size()));
+    }
+
+    private double traceTableHeight(int rows) {
+        var visibleRows = Math.max(1, rows);
+        return 34 + visibleRows * 28 + 18;
+    }
+
+    private void forwardVerticalScrollToParent(TableView<?> table) {
+        table.addEventFilter(ScrollEvent.SCROLL, event -> {
+            if (Math.abs(event.getDeltaY()) <= Math.abs(event.getDeltaX()) || event.isShiftDown()) {
+                return;
+            }
+            var parentScroll = parentScrollPane(table);
+            if (parentScroll == null) {
+                return;
+            }
+            var viewport = parentScroll.getViewportBounds().getHeight();
+            var content = parentScroll.getContent() == null ? viewport : parentScroll.getContent().getBoundsInLocal().getHeight();
+            var scrollable = Math.max(1, content - viewport);
+            parentScroll.setVvalue(clamp(parentScroll.getVvalue() - event.getDeltaY() / scrollable));
+            event.consume();
+        });
+    }
+
+    private javafx.scene.control.ScrollPane parentScrollPane(Node node) {
+        var parent = node.getParent();
+        while (parent != null) {
+            if (parent instanceof javafx.scene.control.ScrollPane scrollPane) {
+                return scrollPane;
+            }
+            parent = parent.getParent();
+        }
+        return null;
+    }
+
+    private double clamp(double value) {
+        return Math.max(0, Math.min(1, value));
     }
 
     private Region region(java.util.Map<String, Object> attributes, String prefix) {

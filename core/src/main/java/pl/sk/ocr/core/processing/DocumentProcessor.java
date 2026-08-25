@@ -125,7 +125,7 @@ public final class DocumentProcessor {
                 return DocumentResult.from(documentId, category.id(), List.of(), List.of(issue),
                     trace(configuration.profile().traceMode(), traceEntries, List.of(issue)));
             }
-            var fields = extractFields(category, firstPage, geometry.transform(), referenceFeatures, traceEntries);
+            var fields = extractFields(category, firstPage, geometry.transform(), referenceFeatures, pageOcr, configuration.profile().ocr(), traceEntries);
             return DocumentResult.from(documentId, category.id(), fields, List.of(),
                 trace(configuration.profile().traceMode(), traceEntries, List.of()));
         } catch (DocumentImagePreprocessingException e) {
@@ -404,12 +404,25 @@ public final class DocumentProcessor {
     }
 
     private List<FieldResult> extractFields(CategoryRuntimeConfiguration category, ProcessingImage pageImage, Transform transform,
-                                            List<ReferenceFeature> referenceFeatures, List<TraceEntry> traceEntries) {
+                                            List<ReferenceFeature> referenceFeatures, pl.sk.ocr.domain.ocr.OcrText pageOcr,
+                                            pl.sk.ocr.config.runtime.OcrSettings pageOcrSettings, List<TraceEntry> traceEntries) {
         return category.fields().stream()
             .map(field -> {
                 var resolution = resolveFieldRegion(category, field, transform, referenceFeatures);
                 traceEntries.add(fieldRegionTrace(category, field, resolution));
-                return fieldProcessingService.extract(field.withResolvedRegion(resolution.resolvedRegion()), pageImage, Transform.IDENTITY);
+                var resolvedField = field.withResolvedRegion(resolution.resolvedRegion());
+                var decision = fieldProcessingService.decideOcrMode(resolvedField, pageOcr, pageOcrSettings);
+                var selected = decision.mode() == FieldProcessingService.FieldOcrMode.PAGE_OCR_REUSE
+                    ? new OcrTextRegionExtractor().extract(pageOcr, resolution.resolvedRegion())
+                    : null;
+                if (selected != null && selected.selectedWords() == 0) {
+                    decision = new FieldProcessingService.FieldOcrDecision(
+                        FieldProcessingService.FieldOcrMode.FIELD_OCR,
+                        "PAGE_OCR_NO_WORDS_IN_REGION"
+                    );
+                }
+                traceEntries.add(fieldOcrTrace(category, resolvedField, resolution.resolvedRegion(), decision, selected));
+                return fieldProcessingService.extract(resolvedField, pageImage, Transform.IDENTITY, pageOcr, pageOcrSettings);
             })
             .toList();
     }
@@ -486,6 +499,29 @@ public final class DocumentProcessor {
         return new TraceEntry(
             ProcessingStage.FIELD_REGION_RESOLUTION,
             "Field region " + resolution.status() + ": " + field.id().value(),
+            attributes,
+            List.of()
+        );
+    }
+
+    private TraceEntry fieldOcrTrace(CategoryRuntimeConfiguration category, FieldDefinition field, Region resolvedRegion,
+                                     FieldProcessingService.FieldOcrDecision decision,
+                                     OcrTextRegionExtractor.ExtractionResult selected) {
+        var attributes = new java.util.LinkedHashMap<String, Object>();
+        attributes.put("categoryId", category.id().value());
+        attributes.put("fieldId", field.id().value());
+        attributes.put("fieldOcrMode", decision.mode().name());
+        attributes.put("fallbackReason", decision.fallbackReason());
+        attributes.put("selectedWords", selected == null ? 0 : selected.selectedWords());
+        attributes.put("selectedLines", selected == null ? 0 : selected.selectedLines());
+        if (selected != null) {
+            attributes.put("rawOcr", selected.ocrText().value());
+            attributes.put("rawOcrHocr", selected.ocrText().hocr());
+        }
+        putRegion(attributes, "resolved", resolvedRegion);
+        return new TraceEntry(
+            ProcessingStage.FIELD_OCR,
+            "Field OCR " + decision.mode().name() + ": " + field.id().value(),
             attributes,
             List.of()
         );

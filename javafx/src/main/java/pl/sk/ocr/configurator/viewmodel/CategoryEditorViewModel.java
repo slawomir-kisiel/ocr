@@ -287,7 +287,8 @@ public final class CategoryEditorViewModel {
         }
         var runId = previewRunGuard.next();
         status.set("Running field preview...");
-        return backgroundExecutor.submit(() -> previewField.preview(draft, field, pageImage, session.traceImageStore())).thenApply(result -> {
+        var pageOcr = session.ocrCache().get(pageNumber);
+        return backgroundExecutor.submit(() -> previewField.preview(draft, field, pageImage, pageOcr, session.traceImageStore())).thenApply(result -> {
             if (previewRunGuard.isLatest(runId)) {
                 session.latestTrace(result.trace());
                 session.latestFieldResult(result.fieldResult());

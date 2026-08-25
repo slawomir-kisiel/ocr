@@ -40,7 +40,9 @@ class DocumentImagePreprocessingServiceTest {
             .satisfies(step -> {
                 assertThat(step.order()).isEqualTo(1);
                 assertThat(step.processorId()).isEqualTo("first");
-                assertThat(step.input()).isSameAs(source);
+                assertThat(step.input()).isNotSameAs(source);
+                assertThat(step.input().width()).isEqualTo(source.width());
+                assertThat(step.input().height()).isEqualTo(source.height());
                 assertThat(step.output()).isSameAs(firstOutput);
                 assertThat(step.events()).singleElement()
                     .satisfies(event -> {
@@ -48,7 +50,9 @@ class DocumentImagePreprocessingServiceTest {
                         assertThat(event.attributes()).containsEntry("id", "first");
                     });
             });
-        assertThat(result.steps().get(1).input()).isSameAs(firstOutput);
+        assertThat(result.steps().get(1).input()).isNotSameAs(firstOutput);
+        assertThat(result.steps().get(1).input().width()).isEqualTo(firstOutput.width());
+        assertThat(result.steps().get(1).input().height()).isEqualTo(firstOutput.height());
         assertThat(result.steps().get(1).output()).isSameAs(secondOutput);
     }
 

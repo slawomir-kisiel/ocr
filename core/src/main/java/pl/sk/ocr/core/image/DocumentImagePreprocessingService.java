@@ -33,7 +33,7 @@ public final class DocumentImagePreprocessingService {
         var traces = new ArrayList<DocumentImagePreprocessingResult.StepTrace>();
         for (var processorRef : steps) {
             try {
-                var input = current;
+                var input = snapshot(current);
                 var events = new ArrayList<DocumentImagePreprocessingResult.EventTrace>();
                 current = imageProcessor(processorRef).process(
                     new ImageProcessingRequest(current, ExtensionParameters.of(processorRef.parameters())),
@@ -53,6 +53,17 @@ public final class DocumentImagePreprocessingService {
             }
         }
         return new DocumentImagePreprocessingResult(page, current, traces);
+    }
+
+    private ProcessingImage snapshot(ProcessingImage image) {
+        var source = image.asBufferedImage();
+        var copy = new java.awt.image.BufferedImage(source.getWidth(), source.getHeight(), source.getType() == 0
+            ? java.awt.image.BufferedImage.TYPE_INT_ARGB
+            : source.getType());
+        var graphics = copy.createGraphics();
+        graphics.drawImage(source, 0, 0, null);
+        graphics.dispose();
+        return new BufferedProcessingImage(copy);
     }
 
     private TraceSink traceSink(List<DocumentImagePreprocessingResult.EventTrace> events) {
