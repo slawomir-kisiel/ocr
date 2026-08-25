@@ -275,7 +275,7 @@ public final class CategoryDraftEditor {
                                List<ExtensionRefDto> imageProcessors, List<ExtensionRefDto> transformers,
                                List<ExtensionRefDto> validators) {
         return new FieldDto(field.id(), field.displayName(), field.page(), region, field.required(), ocr, output,
-            list(imageProcessors), list(transformers), list(validators));
+            list(field.referenceAnchorIds()), list(imageProcessors), list(transformers), list(validators));
     }
 
     private IdentificationDto identification(CategoryDto draft) {

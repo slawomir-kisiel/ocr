@@ -11,6 +11,7 @@ import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
@@ -18,6 +19,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import pl.sk.ocr.config.dto.AnchorDto;
 import pl.sk.ocr.config.dto.ExtensionRefDto;
 import pl.sk.ocr.config.dto.FieldDto;
 import pl.sk.ocr.config.dto.OutputDto;
@@ -30,6 +32,7 @@ import pl.sk.ocr.extension.api.image.ProcessingImage;
 public final class FieldPropertiesPanel implements DetailsPanel {
     private final CategoryEditorViewModel viewModel;
     private final Supplier<List<FieldDto>> fields;
+    private final Supplier<List<AnchorDto>> anchors;
     private final Supplier<Selection> selection;
     private final Label detailsInfo;
     private final Runnable afterChange;
@@ -57,6 +60,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private boolean refreshing;
 
     public FieldPropertiesPanel(CategoryEditorViewModel viewModel, Supplier<List<FieldDto>> fields,
+                                Supplier<List<AnchorDto>> anchors,
                                 Supplier<Selection> selection, Label detailsInfo, Runnable afterChange,
                                 Runnable refreshAll, Consumer<String> pendingSelection,
                                 Runnable activateRegionDrawing, Function<String, Node> iconFactory,
@@ -64,6 +68,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
                                 BiFunction<Integer, Integer, ProcessingImage> imageProcessorDebugSource) {
         this.viewModel = viewModel;
         this.fields = fields;
+        this.anchors = anchors;
         this.selection = selection;
         this.detailsInfo = detailsInfo;
         this.afterChange = afterChange;
@@ -190,6 +195,8 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         detachFromParent(drawFieldRegion);
         regionContent.getChildren().add(drawFieldRegion);
         section.getChildren().add(titledPane("Region", regionContent));
+
+        section.getChildren().add(titledPane("Reference Anchors", referenceAnchorsContent(fieldIndex)));
 
         var outputContent = new VBox(8);
         addFormRow(outputContent, "Exported", outputExported);
@@ -331,7 +338,7 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         var newId = uniqueFieldId(newIndex + 1);
         viewModel.addField(new FieldDto(newId, copyLabel(source.displayName(), newId), source.page(),
             source.region(), source.required(), source.ocr(), copyOutput(source.output(), newId),
-            list(source.imageProcessors()), list(source.transformers()), list(source.validators())));
+            list(source.referenceAnchorIds()), list(source.imageProcessors()), list(source.transformers()), list(source.validators())));
         pendingSelection.accept("field." + newIndex);
         refreshAll.run();
     }
@@ -414,11 +421,11 @@ public final class FieldPropertiesPanel implements DetailsPanel {
     private void replacePipeline(int fieldIndex, FieldDto field, Pipeline pipeline, List<ExtensionRefDto> steps) {
         viewModel.replaceField(fieldIndex, switch (pipeline) {
             case IMAGE_PROCESSORS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
-                field.ocr(), field.output(), steps, list(field.transformers()), list(field.validators()));
+                field.ocr(), field.output(), list(field.referenceAnchorIds()), steps, list(field.transformers()), list(field.validators()));
             case TRANSFORMERS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
-                field.ocr(), field.output(), list(field.imageProcessors()), steps, list(field.validators()));
+                field.ocr(), field.output(), list(field.referenceAnchorIds()), list(field.imageProcessors()), steps, list(field.validators()));
             case VALIDATORS -> new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
-                field.ocr(), field.output(), list(field.imageProcessors()), list(field.transformers()), steps);
+                field.ocr(), field.output(), list(field.referenceAnchorIds()), list(field.imageProcessors()), list(field.transformers()), steps);
         });
     }
 
@@ -430,9 +437,95 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         var current = selectedField();
         viewModel.replaceField(index, new FieldDto(blankToNull(fieldId.getText()), blankToNull(fieldDisplayName.getText()),
             parseInteger(fieldPage.getText()), fieldRegion(), fieldRequired.isSelected(), current.ocr(), output(),
-            list(current.imageProcessors()), list(current.transformers()), list(current.validators())));
+            list(current.referenceAnchorIds()), list(current.imageProcessors()), list(current.transformers()), list(current.validators())));
         pendingSelection.accept("field." + index);
         afterChange.run();
+    }
+
+    private Node referenceAnchorsContent(int fieldIndex) {
+        var field = field(fieldIndex);
+        var content = new VBox(6);
+        if (field == null) {
+            return content;
+        }
+        var selectedIds = list(field.referenceAnchorIds());
+        for (int i = 0; i < selectedIds.size(); i++) {
+            var index = i;
+            var id = selectedIds.get(i);
+            var label = textLabel(anchorLabel(id));
+            label.setMinWidth(140);
+            var moveUp = iconButton("angle-up.svg", "Move reference anchor up", () -> moveReferenceAnchor(fieldIndex, index, index - 1));
+            var moveDown = iconButton("angle-down.svg", "Move reference anchor down", () -> moveReferenceAnchor(fieldIndex, index, index + 1));
+            var remove = iconButton("eraser.svg", "Remove reference anchor", () -> removeReferenceAnchor(fieldIndex, index));
+            moveUp.setDisable(index <= 0);
+            moveDown.setDisable(index >= selectedIds.size() - 1);
+            content.getChildren().add(new HBox(8, label, moveUp, moveDown, remove));
+        }
+        var available = anchors.get().stream()
+            .map(AnchorDto::id)
+            .filter(id -> id != null && !selectedIds.contains(id))
+            .toList();
+        var picker = new ComboBox<String>();
+        picker.getItems().addAll(available);
+        picker.setPromptText("Anchor");
+        picker.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(picker, Priority.ALWAYS);
+        var add = iconButton("plus.svg", "Add reference anchor", () -> {
+            var id = picker.getSelectionModel().getSelectedItem();
+            if (id != null && !id.isBlank()) {
+                addReferenceAnchor(fieldIndex, id);
+            }
+        });
+        add.setDisable(available.isEmpty());
+        content.getChildren().add(new HBox(8, picker, add));
+        return content;
+    }
+
+    private String anchorLabel(String id) {
+        var anchor = anchors.get().stream()
+            .filter(candidate -> java.util.Objects.equals(candidate.id(), id))
+            .findFirst();
+        return anchor.map(value -> value.id()).orElse(id == null ? "" : id);
+    }
+
+    private void addReferenceAnchor(int fieldIndex, String anchorId) {
+        var field = field(fieldIndex);
+        if (field == null) {
+            return;
+        }
+        var ids = new java.util.ArrayList<>(list(field.referenceAnchorIds()));
+        if (!ids.contains(anchorId)) {
+            ids.add(anchorId);
+            replaceReferenceAnchors(fieldIndex, field, ids);
+        }
+    }
+
+    private void moveReferenceAnchor(int fieldIndex, int fromIndex, int toIndex) {
+        var field = field(fieldIndex);
+        var ids = field == null ? List.<String>of() : new java.util.ArrayList<>(list(field.referenceAnchorIds()));
+        if (fromIndex < 0 || fromIndex >= ids.size() || toIndex < 0 || toIndex >= ids.size()) {
+            return;
+        }
+        var id = ids.remove(fromIndex);
+        ids.add(toIndex, id);
+        replaceReferenceAnchors(fieldIndex, field, ids);
+    }
+
+    private void removeReferenceAnchor(int fieldIndex, int index) {
+        var field = field(fieldIndex);
+        var ids = field == null ? List.<String>of() : new java.util.ArrayList<>(list(field.referenceAnchorIds()));
+        if (index < 0 || index >= ids.size()) {
+            return;
+        }
+        ids.remove(index);
+        replaceReferenceAnchors(fieldIndex, field, ids);
+    }
+
+    private void replaceReferenceAnchors(int fieldIndex, FieldDto field, List<String> anchorIds) {
+        viewModel.replaceField(fieldIndex, new FieldDto(field.id(), field.displayName(), field.page(), field.region(), field.required(),
+            field.ocr(), field.output(), list(anchorIds), list(field.imageProcessors()), list(field.transformers()), list(field.validators())));
+        pendingSelection.accept("field." + fieldIndex);
+        refreshAll.run();
     }
 
     private FieldDto field(int index) {

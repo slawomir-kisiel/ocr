@@ -159,6 +159,7 @@ final class ConfigurationMappers {
             ocr(dto.ocr(), categoryOcr),
             output != null && Boolean.TRUE.equals(output.exported()),
             output == null ? null : output.columnName(),
+            dto.referenceAnchorIds() == null ? List.of() : dto.referenceAnchorIds().stream().map(AnchorId::new).toList(),
             extensions(dto.imageProcessors()),
             extensions(dto.transformers()),
             extensions(dto.validators())

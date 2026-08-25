@@ -31,7 +31,7 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         validateReferenceDocuments(dto.referenceDocuments(), problems);
         validateIdentification(dto.identification(), problems);
         validateAnchors(dto.anchors(), dto.geometry(), problems);
-        validateFields(dto.fields(), problems);
+        validateFields(dto.fields(), dto.anchors(), problems);
         return problems;
     }
 
@@ -112,12 +112,13 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
         }
     }
 
-    private void validateFields(List<FieldDto> fields, List<ConfigurationProblem> problems) {
+    private void validateFields(List<FieldDto> fields, List<AnchorDto> anchors, List<ConfigurationProblem> problems) {
         if (fields == null || fields.isEmpty()) {
             return;
         }
         var ids = new HashSet<String>();
         var columns = new HashSet<String>();
+        var anchorIds = anchors == null ? java.util.Set.<String>of() : anchors.stream().map(AnchorDto::id).collect(java.util.stream.Collectors.toSet());
         for (int i = 0; i < fields.size(); i++) {
             var field = fields.get(i);
             if (!ids.add(field.id())) {
@@ -134,7 +135,26 @@ public final class CategoryValidator implements ConfigurationValidator<CategoryD
             validateExtensions(field.imageProcessors(), ExtensionType.IMAGE_PROCESSOR, "$.fields[" + i + "].imageProcessors", problems);
             validateExtensions(field.transformers(), ExtensionType.VALUE_TRANSFORMER, "$.fields[" + i + "].transformers", problems);
             validateExtensions(field.validators(), ExtensionType.VALIDATOR, "$.fields[" + i + "].validators", problems);
+            validateFieldReferenceAnchors(field.referenceAnchorIds(), anchorIds, "$.fields[" + i + "].referenceAnchorIds", problems);
             validateOcr(field.ocr(), "$.fields[" + i + "].ocr", problems);
+        }
+    }
+
+    private void validateFieldReferenceAnchors(List<String> referenceAnchorIds, java.util.Set<String> anchorIds, String path,
+                                               List<ConfigurationProblem> problems) {
+        if (referenceAnchorIds == null || referenceAnchorIds.isEmpty()) {
+            return;
+        }
+        var unique = new HashSet<String>();
+        for (int i = 0; i < referenceAnchorIds.size(); i++) {
+            var id = referenceAnchorIds.get(i);
+            if (id == null || id.isBlank()) {
+                problems.add(problem("UNKNOWN_ANCHOR", path + "[" + i + "]", "Anchor id is required"));
+            } else if (!anchorIds.contains(id)) {
+                problems.add(problem("UNKNOWN_ANCHOR", path + "[" + i + "]", "Unknown anchor: " + id));
+            } else if (!unique.add(id)) {
+                problems.add(problem("DUPLICATE_ID", path + "[" + i + "]", "Duplicate reference anchor id"));
+            }
         }
     }
 

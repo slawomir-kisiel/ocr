@@ -86,6 +86,19 @@ class DocumentProcessorTest {
         assertThat(result.fields()).isEmpty();
     }
 
+    @Test
+    void fieldReferenceAnchorResolvesFieldRegionRelativeToFirstMatchedAnchor() {
+        var reader = (pl.sk.ocr.core.document.DocumentReader) (source, options) ->
+            new RenderedDocument(Map.of(new PageNumber(1), new BufferedProcessingImage(testImage())));
+        var processor = new DocumentProcessor(reader, new FakeOcrEngine());
+
+        var result = processor.process(Path.of("reference-anchor.pdf"), referenceAnchorConfiguration());
+
+        assertThat(result.status()).isEqualTo(ProcessingStatus.SUCCESS);
+        assertThat(result.fields()).singleElement()
+            .satisfies(field -> assertThat(field.resolvedRegion()).isEqualTo(new Region(40, 20, 20, 20)));
+    }
+
     private static RuntimeConfiguration configuration() {
         return configuration(ProcessingMode.FULL);
     }
@@ -135,6 +148,59 @@ class DocumentProcessorTest {
             ProfilePreprocessingConfiguration.empty(),
             new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
             new ProcessingConfiguration(1, 4, mode),
+            OcrSettings.defaults(),
+            TraceMode.OFF,
+            new CsvOutputConfiguration(Path.of("result.csv"), java.nio.charset.StandardCharsets.UTF_8, ";", "\"", true, false)
+        );
+        return new RuntimeConfiguration(profile, List.of(category));
+    }
+
+    private static RuntimeConfiguration referenceAnchorConfiguration() {
+        var field = new FieldDefinition(
+            new FieldId("document-number"),
+            "Document number",
+            1,
+            new Region(30, 10, 20, 20),
+            true,
+            OcrSettings.defaults(),
+            true,
+            "document_number",
+            List.of(new AnchorId("title")),
+            List.of(),
+            List.of(new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("trim"), Map.of())),
+            List.of()
+        );
+        var category = new CategoryRuntimeConfiguration(
+            new CategoryId("invoice-a"),
+            new ConfigurationVersion("1.0"),
+            "Invoice A",
+            new SinglePageSelection(1),
+            OcrSettings.defaults(),
+            new GeometryConfiguration(100, 100, "NONE", List.of()),
+            List.of(new IdentificationGroup(List.of(new IdentificationCondition(1, "INVOICE", null,
+                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of()), null)))),
+            List.of(new AnchorDefinition(
+                new AnchorId("title"),
+                1,
+                new ExtensionRef(new pl.sk.ocr.domain.identifier.ExtensionId("text"), Map.of()),
+                "INVOICE",
+                null,
+                true,
+                new Region(10, 10, 20, 20),
+                null
+            )),
+            List.of(field)
+        );
+        var profile = new ProfileRuntimeConfiguration(
+            "default",
+            new ConfigurationVersion("1.0"),
+            Path.of("."),
+            List.of(),
+            CategoriesMode.EXPLICIT,
+            List.of(new CategoryId("invoice-a")),
+            ProfilePreprocessingConfiguration.empty(),
+            new DirectoriesConfiguration(Path.of("input"), Path.of("success"), Path.of("error")),
+            new ProcessingConfiguration(1, 4, ProcessingMode.FULL),
             OcrSettings.defaults(),
             TraceMode.OFF,
             new CsvOutputConfiguration(Path.of("result.csv"), java.nio.charset.StandardCharsets.UTF_8, ";", "\"", true, false)

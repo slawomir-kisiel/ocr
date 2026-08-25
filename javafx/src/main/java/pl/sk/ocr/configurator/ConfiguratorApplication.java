@@ -207,7 +207,7 @@ public final class ConfiguratorApplication extends Application {
             refreshAfterDraftEdit();
             renderOcrOverlay();
         });
-        fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::fieldSelection, detailsInfo,
+        fieldPropertiesPanel = new FieldPropertiesPanel(viewModel, this::fields, this::anchors, this::fieldSelection, detailsInfo,
             this::refreshAfterDraftEdit, this::refreshAll, selection -> pendingTreeSelectionId = selection,
             this::activateFieldRegionDrawing, this::svgIcon, services.extensionRegistry(),
             this::fieldImageProcessorDebugSource);
@@ -2744,12 +2744,41 @@ public final class ConfiguratorApplication extends Application {
             return;
         }
         var field = field(selected.index());
-        if (field == null || field.region() == null || field.page() != null && field.page() != viewModel.session().currentPage()) {
+        if (field == null) {
+            return;
+        }
+        renderSelectedFieldReferenceAnchors(field);
+        if (field.region() == null || field.page() != null && field.page() != viewModel.session().currentPage()) {
             return;
         }
         var rectangle = regionRectangle(field.region(), Color.color(0.50, 0.20, 0.82, 0.12), "#7c3aed", 2.0);
         viewer.addOverlay(rectangle);
         viewer.editableRegion(rectangle, RegionTargetType.FIELD_REGION);
+    }
+
+    private void renderSelectedFieldReferenceAnchors(pl.sk.ocr.config.dto.FieldDto field) {
+        if (field.referenceAnchorIds() == null || field.referenceAnchorIds().isEmpty()) {
+            return;
+        }
+        for (var anchorId : field.referenceAnchorIds()) {
+            var anchor = anchors().stream()
+                .filter(candidate -> java.util.Objects.equals(candidate.id(), anchorId))
+                .findFirst()
+                .orElse(null);
+            if (anchor == null || anchor.page() != null && anchor.page() != viewModel.session().currentPage()) {
+                continue;
+            }
+            if (anchor.searchRegion() != null) {
+                var search = regionRectangle(anchor.searchRegion(), Color.color(0.93, 0.56, 0.12, 0.08), "#d97706", 1.8);
+                search.getStrokeDashArray().setAll(8.0, 5.0);
+                viewer.addOverlay(search);
+            }
+            if (anchor.referenceFeature() != null && anchor.referenceFeature().bounds() != null) {
+                var reference = regionRectangle(anchor.referenceFeature().bounds(), Color.color(0.12, 0.65, 0.38, 0.14), "#059669", 2.2);
+                reference.getStrokeDashArray().setAll(4.0, 4.0);
+                viewer.addOverlay(reference);
+            }
+        }
     }
 
     private void renderSelectedFieldResultOverlay() {

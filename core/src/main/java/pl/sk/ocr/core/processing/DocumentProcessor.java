@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import pl.sk.ocr.config.runtime.CategoryRuntimeConfiguration;
+import pl.sk.ocr.config.runtime.FieldDefinition;
 import pl.sk.ocr.config.runtime.IdentificationCondition;
 import pl.sk.ocr.config.runtime.ProcessingMode;
 import pl.sk.ocr.config.runtime.RuntimeConfiguration;
@@ -24,6 +25,7 @@ import pl.sk.ocr.core.ocr.OcrEngine;
 import pl.sk.ocr.core.ocr.OcrOptions;
 import pl.sk.ocr.domain.geometry.Region;
 import pl.sk.ocr.domain.geometry.Transform;
+import pl.sk.ocr.domain.identifier.AnchorId;
 import pl.sk.ocr.domain.identifier.DocumentId;
 import pl.sk.ocr.domain.identifier.ExtensionId;
 import pl.sk.ocr.domain.identifier.PageNumber;
@@ -123,7 +125,7 @@ public final class DocumentProcessor {
                 return DocumentResult.from(documentId, category.id(), List.of(), List.of(issue),
                     trace(configuration.profile().traceMode(), traceEntries, List.of(issue)));
             }
-            var fields = extractFields(category, firstPage, geometry.transform());
+            var fields = extractFields(category, firstPage, geometry.transform(), referenceFeatures, traceEntries);
             return DocumentResult.from(documentId, category.id(), fields, List.of(),
                 trace(configuration.profile().traceMode(), traceEntries, List.of()));
         } catch (DocumentImagePreprocessingException e) {
@@ -401,10 +403,100 @@ public final class DocumentProcessor {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
-    private List<FieldResult> extractFields(CategoryRuntimeConfiguration category, ProcessingImage pageImage, Transform transform) {
+    private List<FieldResult> extractFields(CategoryRuntimeConfiguration category, ProcessingImage pageImage, Transform transform,
+                                            List<ReferenceFeature> referenceFeatures, List<TraceEntry> traceEntries) {
         return category.fields().stream()
-            .map(field -> fieldProcessingService.extract(field, pageImage, transform))
+            .map(field -> {
+                var resolution = resolveFieldRegion(category, field, transform, referenceFeatures);
+                traceEntries.add(fieldRegionTrace(category, field, resolution));
+                return fieldProcessingService.extract(field.withResolvedRegion(resolution.resolvedRegion()), pageImage, Transform.IDENTITY);
+            })
             .toList();
+    }
+
+    private FieldRegionResolution resolveFieldRegion(CategoryRuntimeConfiguration category, FieldDefinition field, Transform transform,
+                                                     List<ReferenceFeature> referenceFeatures) {
+        var globalRegion = transform.map(field.region());
+        var referenceAnchorIds = field.referenceAnchorIds();
+        if (referenceAnchorIds == null || referenceAnchorIds.isEmpty()) {
+            return new FieldRegionResolution("GLOBAL", globalRegion, null, List.of(), globalRegion, null, null, null);
+        }
+        var attempts = new ArrayList<FieldReferenceAnchorAttempt>();
+        for (var anchorId : referenceAnchorIds) {
+            var anchor = category.anchors().stream()
+                .filter(candidate -> candidate.id().equals(anchorId))
+                .findFirst();
+            var detected = referenceFeatures.stream()
+                .filter(candidate -> candidate.anchorId().equals(anchorId))
+                .findFirst();
+            var matched = anchor.isPresent() && detected.isPresent() && anchor.get().bounds() != null;
+            attempts.add(new FieldReferenceAnchorAttempt(anchorId, matched));
+            if (matched) {
+                var reference = anchor.get().bounds();
+                var resolved = resolveRelativeToAnchor(field.region(), reference, detected.get().bounds(), transform);
+                return new FieldRegionResolution("REFERENCE_ANCHOR", resolved, anchorId, attempts,
+                    globalRegion, reference, detected.get().bounds(), null);
+            }
+        }
+        return new FieldRegionResolution("DEGRADED", globalRegion, null, attempts, globalRegion, null, null,
+            "No configured reference anchor was matched");
+    }
+
+    private Region resolveRelativeToAnchor(Region fieldRegion, Region referenceAnchor, Region detectedAnchor, Transform transform) {
+        var topLeft = mapLocal(fieldRegion.x(), fieldRegion.y(), referenceAnchor, detectedAnchor, transform);
+        var topRight = mapLocal(fieldRegion.x() + fieldRegion.width(), fieldRegion.y(), referenceAnchor, detectedAnchor, transform);
+        var bottomLeft = mapLocal(fieldRegion.x(), fieldRegion.y() + fieldRegion.height(), referenceAnchor, detectedAnchor, transform);
+        var bottomRight = mapLocal(fieldRegion.x() + fieldRegion.width(), fieldRegion.y() + fieldRegion.height(), referenceAnchor, detectedAnchor,
+            transform);
+        var minX = Math.min(Math.min(topLeft.x(), topRight.x()), Math.min(bottomLeft.x(), bottomRight.x()));
+        var minY = Math.min(Math.min(topLeft.y(), topRight.y()), Math.min(bottomLeft.y(), bottomRight.y()));
+        var maxX = Math.max(Math.max(topLeft.x(), topRight.x()), Math.max(bottomLeft.x(), bottomRight.x()));
+        var maxY = Math.max(Math.max(topLeft.y(), topRight.y()), Math.max(bottomLeft.y(), bottomRight.y()));
+        return new Region(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    private pl.sk.ocr.domain.geometry.Point mapLocal(double sourceX, double sourceY, Region referenceAnchor, Region detectedAnchor,
+                                                     Transform transform) {
+        var localX = sourceX - referenceAnchor.x();
+        var localY = sourceY - referenceAnchor.y();
+        return new pl.sk.ocr.domain.geometry.Point(
+            detectedAnchor.x() + transform.affineA() * localX + transform.affineB() * localY,
+            detectedAnchor.y() + transform.affineC() * localX + transform.affineD() * localY
+        );
+    }
+
+    private TraceEntry fieldRegionTrace(CategoryRuntimeConfiguration category, FieldDefinition field, FieldRegionResolution resolution) {
+        var attributes = new java.util.LinkedHashMap<String, Object>();
+        attributes.put("categoryId", category.id().value());
+        attributes.put("fieldId", field.id().value());
+        attributes.put("status", resolution.status());
+        attributes.put("referenceAnchorIds", field.referenceAnchorIds().stream().map(AnchorId::value).toList());
+        attributes.put("selectedReferenceAnchorId", resolution.selectedAnchorId() == null ? "" : resolution.selectedAnchorId().value());
+        attributes.put("referenceAnchorAttempts", resolution.attempts().stream()
+            .map(attempt -> Map.of("anchorId", attempt.anchorId().value(), "matched", attempt.matched()))
+            .toList());
+        putRegion(attributes, "configured", field.region());
+        putRegion(attributes, "global", resolution.globalRegion());
+        putRegion(attributes, "resolved", resolution.resolvedRegion());
+        putRegion(attributes, "selectedReference", resolution.selectedReferenceRegion());
+        putRegion(attributes, "selectedDetected", resolution.selectedDetectedRegion());
+        if (resolution.fallbackReason() != null) {
+            attributes.put("fallbackReason", resolution.fallbackReason());
+        }
+        return new TraceEntry(
+            ProcessingStage.FIELD_REGION_RESOLUTION,
+            "Field region " + resolution.status() + ": " + field.id().value(),
+            attributes,
+            List.of()
+        );
+    }
+
+    private record FieldRegionResolution(String status, Region resolvedRegion, AnchorId selectedAnchorId,
+                                         List<FieldReferenceAnchorAttempt> attempts, Region globalRegion,
+                                         Region selectedReferenceRegion, Region selectedDetectedRegion, String fallbackReason) {
+    }
+
+    private record FieldReferenceAnchorAttempt(AnchorId anchorId, boolean matched) {
     }
 
     private OcrOptions options(pl.sk.ocr.config.runtime.OcrSettings settings) {
