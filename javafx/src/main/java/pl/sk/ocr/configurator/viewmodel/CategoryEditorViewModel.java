@@ -316,9 +316,13 @@ public final class CategoryEditorViewModel {
         }
         var runId = previewRunGuard.next();
         status.set("Running category test...");
-        return backgroundExecutor.submit(() -> testCategory.test(draft, session.referenceDocument(), session.pageCache(),
-            session.traceImageStore(), settings == null ? OcrSettings.defaults() : settings)).thenApply(result -> {
+        return backgroundExecutor.submit(() -> testCategory.testDetailed(draft, session.referenceDocument(), session.pageCache(),
+            session.traceImageStore(), settings == null ? OcrSettings.defaults() : settings, true)).thenApply(testResult -> {
+            var result = testResult.documentResult();
             if (previewRunGuard.isLatest(runId)) {
+                if (testResult.categorizationOcr() != null) {
+                    session.ocrCache().put(new PageNumber(1), testResult.categorizationOcr());
+                }
                 session.latestDocumentResult(result);
                 session.latestTrace(result.trace());
                 status.set("Category test ready: " + result.status());

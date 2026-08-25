@@ -58,6 +58,11 @@ public final class TestCategoryUseCase {
 
     public DocumentResult test(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages,
                                TraceImageStore traceImageStore, OcrSettings defaultOcrSettings, boolean clearTraceImageStore) {
+        return testDetailed(category, documentPath, pages, traceImageStore, defaultOcrSettings, clearTraceImageStore).documentResult();
+    }
+
+    public CategoryTestResult testDetailed(CategoryDto category, Path documentPath, Map<PageNumber, ProcessingImage> pages,
+                                           TraceImageStore traceImageStore, OcrSettings defaultOcrSettings, boolean clearTraceImageStore) {
         if (category == null) {
             throw new IllegalArgumentException("category is required");
         }
@@ -77,17 +82,17 @@ public final class TestCategoryUseCase {
         var processor = new DocumentProcessor(inMemoryReader(pages), ocrEngine, extensionRegistry);
         var result = processor.process(documentPath, runtime);
         var categorizationDiagnostics = categorizationDiagnostics(pages, runtime.profile().ocr(), traceImageStore);
-        return enrichTrace(result, categorizationDiagnostics);
+        return new CategoryTestResult(enrichTrace(result, categorizationDiagnostics.traceEntry()), categorizationDiagnostics.ocrText());
     }
 
-    private TraceEntry categorizationDiagnostics(Map<PageNumber, ProcessingImage> pages, OcrSettings ocr, TraceImageStore traceImageStore) {
+    private CategorizationDiagnostics categorizationDiagnostics(Map<PageNumber, ProcessingImage> pages, OcrSettings ocr, TraceImageStore traceImageStore) {
         var page = pages.get(new PageNumber(1));
         if (page == null) {
-            return null;
+            return new CategorizationDiagnostics(null, null);
         }
         var ref = traceImageStore.put("Categorization OCR input page 1", page);
         var ocrText = recognize(page, ocr);
-        return new TraceEntry(
+        return new CategorizationDiagnostics(new TraceEntry(
             ProcessingStage.CATEGORY_IDENTIFICATION,
             "Categorization OCR input and raw OCR",
             Map.of(
@@ -96,7 +101,7 @@ public final class TestCategoryUseCase {
                 "rawOcrHocr", ocrText.hocr()
             ),
             List.of(ref)
-        );
+        ), ocrText);
     }
 
     private OcrText recognize(ProcessingImage page, OcrSettings ocr) {
@@ -145,5 +150,11 @@ public final class TestCategoryUseCase {
             new CsvOutputConfiguration(base.resolve("preview.csv"), StandardCharsets.UTF_8, ";", "\"", true, true)
         );
         return new RuntimeConfiguration(profile, List.of(runtimeCategory));
+    }
+
+    public record CategoryTestResult(DocumentResult documentResult, OcrText categorizationOcr) {
+    }
+
+    private record CategorizationDiagnostics(TraceEntry traceEntry, OcrText ocrText) {
     }
 }
