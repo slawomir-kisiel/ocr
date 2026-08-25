@@ -339,16 +339,18 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
             refreshAll.run();
         });
         var moveUp = iconButton("angle-up.svg", "Move condition up", () -> {
-            if (conditionIndex > 0) {
+            var target = conditionMoveTarget(groupIndex, conditionIndex, -1);
+            if (target != null) {
                 viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex - 1);
-                pendingSelection.accept("identification.group." + groupIndex + ".condition." + (conditionIndex - 1));
+                pendingSelection.accept("identification.group." + target.groupIndex() + ".condition." + target.conditionIndex());
                 refreshAll.run();
             }
         });
         var moveDown = iconButton("angle-down.svg", "Move condition down", () -> {
-            if (conditionIndex < conditions(groupIndex).size() - 1) {
+            var target = conditionMoveTarget(groupIndex, conditionIndex, 1);
+            if (target != null) {
                 viewModel.moveCondition(groupIndex, conditionIndex, conditionIndex + 1);
-                pendingSelection.accept("identification.group." + groupIndex + ".condition." + (conditionIndex + 1));
+                pendingSelection.accept("identification.group." + target.groupIndex() + ".condition." + target.conditionIndex());
                 refreshAll.run();
             }
         });
@@ -357,9 +359,29 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
             pendingSelection.accept("identification.group." + groupIndex);
             refreshAll.run();
         });
-        moveUp.setDisable(conditionIndex <= 0);
-        moveDown.setDisable(conditionIndex >= conditions(groupIndex).size() - 1);
+        moveUp.setDisable(conditionMoveTarget(groupIndex, conditionIndex, -1) == null);
+        moveDown.setDisable(conditionMoveTarget(groupIndex, conditionIndex, 1) == null);
         section.getChildren().add(new HBox(8, addCondition, moveUp, moveDown, remove));
+    }
+
+    private ConditionMoveTarget conditionMoveTarget(int groupIndex, int conditionIndex, int direction) {
+        var current = conditions(groupIndex);
+        if (direction < 0) {
+            if (conditionIndex > 0) {
+                return new ConditionMoveTarget(groupIndex, conditionIndex - 1);
+            }
+            if (groupIndex > 0) {
+                return new ConditionMoveTarget(groupIndex - 1, conditions(groupIndex - 1).size());
+            }
+            return null;
+        }
+        if (conditionIndex < current.size() - 1) {
+            return new ConditionMoveTarget(groupIndex, conditionIndex + 1);
+        }
+        if (groupIndex < groups().size() - 1) {
+            return new ConditionMoveTarget(groupIndex + 1, 0);
+        }
+        return null;
     }
 
     private Button button(String text, Runnable action) {
@@ -567,5 +589,8 @@ public final class IdentificationPropertiesPanel implements DetailsPanel {
     }
 
     public record Selection(SelectionType type, int groupIndex, int conditionIndex) {
+    }
+
+    private record ConditionMoveTarget(int groupIndex, int conditionIndex) {
     }
 }

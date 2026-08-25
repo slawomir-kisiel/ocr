@@ -90,7 +90,24 @@ public final class CategoryDraftEditor {
 
     public CategoryDto moveCondition(CategoryDto draft, int groupIndex, int fromIndex, int toIndex) {
         requireDraft(draft);
-        return updateGroup(draft, groupIndex, group -> new ConditionGroupDto(move(group.conditions(), fromIndex, toIndex, "condition")));
+        var groups = identification(draft).groups();
+        requireIndex(groups, groupIndex, "identification group");
+        var sourceConditions = list(groups.get(groupIndex).conditions());
+        requireIndex(sourceConditions, fromIndex, "condition");
+        if (toIndex >= 0 && toIndex < sourceConditions.size()) {
+            return updateGroup(draft, groupIndex, group -> new ConditionGroupDto(move(group.conditions(), fromIndex, toIndex, "condition")));
+        }
+        var targetGroupIndex = toIndex < 0 ? groupIndex - 1 : groupIndex + 1;
+        requireIndex(groups, targetGroupIndex, "identification group");
+        var moved = sourceConditions.get(fromIndex);
+        var updatedGroups = new ArrayList<>(groups);
+        updatedGroups.set(groupIndex, new ConditionGroupDto(remove(sourceConditions, fromIndex, "condition")));
+        var targetConditions = list(updatedGroups.get(targetGroupIndex).conditions());
+        var targetIndex = toIndex < 0 ? targetConditions.size() : 0;
+        var updatedTarget = new ArrayList<>(targetConditions);
+        updatedTarget.add(targetIndex, moved);
+        updatedGroups.set(targetGroupIndex, new ConditionGroupDto(List.copyOf(updatedTarget)));
+        return withIdentificationGroups(draft, List.copyOf(updatedGroups));
     }
 
     public CategoryDto addAnchor(CategoryDto draft, AnchorDto anchor) {

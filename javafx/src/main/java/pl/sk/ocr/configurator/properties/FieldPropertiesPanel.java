@@ -139,6 +139,11 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         fieldsCount.setStyle("-fx-text-fill: #111827;");
         installTooltip(fieldsCount, "Number of fields configured for extraction.");
         installTooltip(addField, "Add a new field.");
+        addField.setText("");
+        addField.setGraphic(iconFactory.apply("plus.svg"));
+        addField.setMinSize(36, 32);
+        addField.setPrefSize(36, 32);
+        addField.setMaxSize(36, 32);
         installTooltip(fieldId, "Field id used by output and processing diagnostics.");
         installTooltip(fieldDisplayName, "Human-readable field name.");
         installTooltip(fieldPage, "Page where this field should be extracted.");
@@ -191,11 +196,11 @@ public final class FieldPropertiesPanel implements DetailsPanel {
         addFormRow(outputContent, "Column Name", outputColumnName);
         section.getChildren().add(titledPane("Output", outputContent));
 
-        var add = button("Add Field", this::addField);
-        var copy = button("Copy Field", () -> copyField(fieldIndex));
-        var moveUp = button("Move Up", () -> moveField(fieldIndex, fieldIndex - 1));
-        var moveDown = button("Move Down", () -> moveField(fieldIndex, fieldIndex + 1));
-        var remove = button("Remove Field", () -> removeField(fieldIndex));
+        var add = iconButton("plus.svg", "Add field", this::addField);
+        var copy = iconButton("copy.svg", "Copy field", () -> copyField(fieldIndex));
+        var moveUp = iconButton("angle-up.svg", "Move field up", () -> moveField(fieldIndex, fieldIndex - 1));
+        var moveDown = iconButton("angle-down.svg", "Move field down", () -> moveField(fieldIndex, fieldIndex + 1));
+        var remove = iconButton("eraser.svg", "Remove field", () -> removeField(fieldIndex));
         moveUp.setDisable(fieldIndex <= 0);
         moveDown.setDisable(fieldIndex >= fields.get().size() - 1);
         section.getChildren().add(new HBox(8, add, copy, moveUp, moveDown, remove));

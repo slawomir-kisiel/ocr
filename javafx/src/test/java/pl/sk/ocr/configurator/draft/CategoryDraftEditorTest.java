@@ -63,6 +63,31 @@ class CategoryDraftEditorTest {
     }
 
     @Test
+    void movesIdentificationConditionAcrossGroupBoundaries() {
+        var draft = editor.newCategory("invoice", "Invoice");
+        draft = editor.addCondition(draft, 0, condition("A"));
+        draft = editor.addIdentificationGroup(draft, new ConditionGroupDto(List.of(condition("B"), condition("C"))));
+
+        draft = editor.moveCondition(draft, 0, 1, 2);
+
+        assertThat(draft.identification().groups().get(0).conditions())
+            .extracting(ConditionDto::expectedText)
+            .containsExactly("");
+        assertThat(draft.identification().groups().get(1).conditions())
+            .extracting(ConditionDto::expectedText)
+            .containsExactly("A", "B", "C");
+
+        draft = editor.moveCondition(draft, 1, 0, -1);
+
+        assertThat(draft.identification().groups().get(0).conditions())
+            .extracting(ConditionDto::expectedText)
+            .containsExactly("", "A");
+        assertThat(draft.identification().groups().get(1).conditions())
+            .extracting(ConditionDto::expectedText)
+            .containsExactly("B", "C");
+    }
+
+    @Test
     void replacesIdentificationCondition() {
         var draft = editor.newCategory("invoice", "Invoice");
 
